@@ -2,6 +2,9 @@
 
 #include <Arduino.h> // needed for PlatformIO
 #include <Mesh.h>
+#ifdef CHILD_MODE
+#include "child_mode/ChildMode.h"
+#endif
 
 #define CMD_APP_START                 1
 #define CMD_SEND_TXT_MSG              2
@@ -428,6 +431,10 @@ ContactInfo*  MyMesh::processAck(const uint8_t *data) {
 
 void MyMesh::queueMessage(const ContactInfo &from, uint8_t txt_type, mesh::Packet *pkt,
                           uint32_t sender_timestamp, const uint8_t *extra, int extra_len, const char *text) {
+#ifdef CHILD_MODE
+  // CHILD_MODE seam: intercept commands (e.g. "!pin old new"); suppress if consumed
+  if (child_mode.onIncomingText(from, txt_type, text)) return;
+#endif
   int i = 0;
   if (app_target_ver >= 3) {
     out_frame[i++] = RESP_CODE_CONTACT_MSG_RECV_V3;
@@ -541,6 +548,9 @@ void MyMesh::onSignedMessageRecv(const ContactInfo &from, mesh::Packet *pkt, uin
 
 void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint32_t timestamp,
                                   const char *text) {
+#ifdef CHILD_MODE
+  // CHILD_MODE seam: channel-message command handling is intentionally deferred to phase 2
+#endif
   int i = 0;
   if (app_target_ver >= 3) {
     out_frame[i++] = RESP_CODE_CHANNEL_MSG_RECV_V3;

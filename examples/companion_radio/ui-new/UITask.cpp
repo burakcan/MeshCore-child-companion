@@ -588,7 +588,16 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   splash = new SplashScreen(this);
   home = new HomeScreen(this, &rtc_clock, sensors, node_prefs);
   msg_preview = new MsgPreviewScreen(this, &rtc_clock);
+#ifdef CHILD_MODE
+  // CHILD_MODE seam: boot into the child screen if one was registered
+  if (_initial_override != nullptr) {
+    setCurrScreen(_initial_override);
+  } else {
+    setCurrScreen(splash);
+  }
+#else
   setCurrScreen(splash);
+#endif
 }
 
 void UITask::showAlert(const char* text, int duration_millis) {

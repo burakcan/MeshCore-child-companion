@@ -52,6 +52,9 @@ class UITask : public AbstractUITask {
   UIScreen* home;
   UIScreen* msg_preview;
   UIScreen* curr;
+#ifdef CHILD_MODE
+  UIScreen* _initial_override = nullptr;   // CHILD_MODE seam
+#endif
 
   void userLedHandler();
 
@@ -71,6 +74,13 @@ public:
     curr = NULL;
   }
   void begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* node_prefs);
+
+  // CHILD_MODE seam: external screen control
+  void showScreen(UIScreen* s) { setCurrScreen(s); }
+  UIScreen* getFullHomeScreen() { return home; }
+#ifdef CHILD_MODE
+  void setInitialScreen(UIScreen* s) { _initial_override = s; }
+#endif
 
   void gotoHomeScreen() { setCurrScreen(home); }
   void showAlert(const char* text, int duration_millis);

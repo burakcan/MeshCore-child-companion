@@ -180,6 +180,16 @@ public:
   // To check if there is pending work
   bool hasPendingWork() const;
 
+#ifdef CHILD_MODE
+  // CHILD_MODE seam: public blob accessors for ChildMode persistence
+  int childGetBlob(const uint8_t key[], int key_len, uint8_t dest_buf[]) {
+    return getBlobByKey(key, key_len, dest_buf);
+  }
+  bool childPutBlob(const uint8_t key[], int key_len, const uint8_t src_buf[], int len) {
+    return putBlobByKey(key, key_len, src_buf, len);
+  }
+#endif
+
 private:
   void writeOKFrame();
   void writeErrFrame(uint8_t err_code);

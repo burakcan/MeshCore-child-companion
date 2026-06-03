@@ -1,6 +1,9 @@
 #include <Arduino.h>   // needed for PlatformIO
 #include <Mesh.h>
 #include "MyMesh.h"
+#ifdef CHILD_MODE
+#include "child_mode/ChildMode.h"
+#endif
 
 // Believe it or not, this std C function is busted on some platforms!
 static uint32_t _atoi(const char* sp) {
@@ -236,6 +239,10 @@ void setup() {
 #endif
 
 #ifdef DISPLAY_CLASS
+#ifdef CHILD_MODE
+  // CHILD_MODE seam: load child config + register child home as initial screen
+  child_mode.begin();
+#endif
   ui_task.begin(disp, &sensors, the_mesh.getNodePrefs());  // still want to pass this in as dependency, as prefs might be moved
 #endif
 
