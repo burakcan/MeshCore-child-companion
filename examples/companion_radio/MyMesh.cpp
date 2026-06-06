@@ -301,6 +301,10 @@ bool MyMesh::isAutoAddEnabled() const {
 }
 
 bool MyMesh::shouldAutoAddContactType(uint8_t contact_type) const {
+#ifdef CHILD_MODE
+  // CHILD_MODE seam: never auto-add; contacts[] is the parent-approved allow-list
+  return false;
+#endif
   if ((_prefs.manual_add_contacts & 1) == 0) {
     return true;
   }
@@ -361,7 +365,10 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path
     }
   } else {
 #ifdef DISPLAY_CLASS
+#ifndef CHILD_MODE
+    // CHILD_MODE seam: never alert/buzz/vibrate the child on heard adverts (incl. strangers)
     if (_ui) _ui->notify(UIEventType::newContactMessage);
+#endif
 #endif
   }
 
@@ -968,7 +975,9 @@ void MyMesh::begin(bool has_display) {
   resetContacts();
   _store->loadContacts(this);
   bootstrapRTCfromContacts();
+#ifndef CHILD_MODE
   addChannel("Public", PUBLIC_GROUP_PSK); // pre-configure Andy's public channel
+#endif // CHILD_MODE seam: child starts with no Public channel
   _store->loadChannels(this);
 
   radio_driver.setParams(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr);

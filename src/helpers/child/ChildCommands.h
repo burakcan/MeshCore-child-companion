@@ -12,3 +12,7 @@ struct PinChange {
 
 // "!pin <old> <new>"
 ChildCmd parseChildCommand(const char* text, PinChange& out);
+
+// Approved sender == any real contact. Anon/transient contacts use ADV_TYPE_NONE (0).
+// Takes the raw ContactInfo.type so this stays host-portable (no firmware headers).
+bool childSenderApproved(uint8_t contact_type);

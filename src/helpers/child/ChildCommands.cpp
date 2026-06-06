@@ -29,3 +29,7 @@ ChildCmd parseChildCommand(const char* text, PinChange& out) {
   if (!parseUint(&s, &out.new_pin)) return CHILD_CMD_NONE;
   return CHILD_CMD_PIN_CHANGE;
 }
+
+bool childSenderApproved(uint8_t contact_type) {
+  return contact_type != 0;   // 0 == ADV_TYPE_NONE
+}

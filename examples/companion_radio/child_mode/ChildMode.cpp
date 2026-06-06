@@ -74,7 +74,14 @@ void ChildMode::onPinCancel() {
   ui_task.showScreen(&_home);
 }
 
+static_assert(ADV_TYPE_NONE == 0, "childSenderApproved assumes ADV_TYPE_NONE == 0");
+
 bool ChildMode::onIncomingText(const ContactInfo& from, uint8_t txt_type, const char* text) {
+  // CHILD_MODE: only pre-approved contacts may message or command the child.
+  // (Unknown pubkeys are already dropped by the crypto layer; this rejects
+  //  anon/transient contacts, type == ADV_TYPE_NONE.)
+  if (!childSenderApproved(from.type)) return true;   // drop: suppress from UI + commands
+
   PinChange pc;
   if (parseChildCommand(text, pc) == CHILD_CMD_PIN_CHANGE) {
     if (pc.old_pin == _cfg.pin) {

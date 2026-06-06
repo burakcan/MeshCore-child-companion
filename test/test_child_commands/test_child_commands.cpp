@@ -27,6 +27,17 @@ TEST(ChildCommands, RejectsMalformedPin) {
   EXPECT_EQ(parseChildCommand("!pin abc 5678", pc), CHILD_CMD_NONE);   // non-digit
 }
 
+TEST(ChildSenderApproved, AnonTypeRejected) {
+  EXPECT_FALSE(childSenderApproved(0));   // ADV_TYPE_NONE
+}
+
+TEST(ChildSenderApproved, RealTypesApproved) {
+  EXPECT_TRUE(childSenderApproved(1));    // ADV_TYPE_CHAT
+  EXPECT_TRUE(childSenderApproved(2));    // ADV_TYPE_REPEATER
+  EXPECT_TRUE(childSenderApproved(3));    // ADV_TYPE_ROOM
+  EXPECT_TRUE(childSenderApproved(4));    // ADV_TYPE_SENSOR
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
