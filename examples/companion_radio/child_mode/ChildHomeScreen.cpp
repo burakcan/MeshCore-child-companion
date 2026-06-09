@@ -23,6 +23,15 @@ int ChildHomeScreen::render(DisplayDriver& display) {
   display.setTextSize(2);
   display.drawTextCentered(display.width() / 2, 26, name);
 
+  int unread = _owner->unreadCount();
+  if (unread > 0) {
+    char badge[16];
+    snprintf(badge, sizeof(badge), "New: %d", unread);
+    display.setColor(DisplayDriver::LIGHT);
+    display.setTextSize(1);
+    display.drawTextCentered(display.width() / 2, 42, badge);
+  }
+
   display.setTextSize(1);
   display.drawTextCentered(display.width() / 2, 52, "press = menu");
   return 1000;

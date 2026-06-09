@@ -15,13 +15,15 @@ static const uint8_t CHILD_KEY[7] = {'c','h','i','l','d',0,0};
 // nRF52 DataStore::putBlobByKey rejects blobs shorter than PUB_KEY_SIZE+4+SIGNATURE_SIZE
 static const int CHILD_BLOB_LEN = PUB_KEY_SIZE + 4 + SIGNATURE_SIZE;
 
-// Menu items
-static const char* const MENU_ITEMS[] = { "Settings", "Back" };
-static const int MENU_COUNT = 2;
+// Top menu items
+static const char* const MENU_ITEMS[] = { "Messages", "Settings", "Back" };
+static const int MENU_COUNT = 3;
+static const char* const NO_MSG_ITEMS[] = { "No messages" };
 
 ChildMode child_mode;         // single global instance
 
-ChildMode::ChildMode() : _home(this) {}
+ChildMode::ChildMode() : _home(this), _reader(this), _menu_context(MENU_TOP),
+                         _reader_return(RETURN_HOME) {}
 
 void ChildMode::loadOrSeed() {
   uint8_t buf[CHILD_BLOB_LEN];
@@ -45,12 +47,33 @@ void ChildMode::begin() {
 }
 
 void ChildMode::openMenu() {
+  _menu_context = MENU_TOP;
   _menu.set("Menu", MENU_ITEMS, MENU_COUNT, this);
   ui_task.showScreen(&_menu);
 }
 
+void ChildMode::openMessages() {
+  _menu_context = MENU_MESSAGES;
+  if (_store.count() == 0) {
+    _menu.set("Messages", NO_MSG_ITEMS, 1, this);
+  } else {
+    _menu.set("Messages", _store.labelPtrs(), _store.count(), this);
+  }
+  ui_task.showScreen(&_menu);
+}
+
 void ChildMode::onMenuSelect(int idx) {
-  if (idx == 0) {                       // Settings -> PIN gate
+  if (_menu_context == MENU_MESSAGES) {
+    if (_store.count() == 0) { openMenu(); return; }   // "No messages" -> back to menu
+    _reader_return = RETURN_LIST;
+    _reader.open(&_store, idx);
+    ui_task.showScreen(&_reader);
+    return;
+  }
+  // MENU_TOP
+  if (idx == 0) {                       // Messages
+    openMessages();
+  } else if (idx == 1) {                // Settings -> PIN gate
     _pin.begin("Enter PIN", this);
     ui_task.showScreen(&_pin);
   } else {                              // Back
@@ -59,7 +82,29 @@ void ChildMode::onMenuSelect(int idx) {
 }
 
 void ChildMode::onMenuCancel() {
-  ui_task.showScreen(&_home);
+  if (_menu_context == MENU_MESSAGES) {
+    _store.markAllRead();
+    ui_task.showScreen(&_home);
+  } else {
+    ui_task.showScreen(&_home);
+  }
+}
+
+void ChildMode::captureMessage(const char* origin, const char* text, uint32_t ts, bool is_channel) {
+  _store.add(origin, text, ts, is_channel);
+  ui_task.notify(is_channel ? UIEventType::channelMessage : UIEventType::contactMessage);
+  _reader_return = RETURN_HOME;
+  _reader.open(&_store, 0);             // newest
+  ui_task.showScreen(&_reader);
+}
+
+void ChildMode::onReaderBack() {
+  if (_reader_return == RETURN_LIST) {
+    openMessages();
+  } else {
+    _store.markAllRead();
+    ui_task.showScreen(&_home);
+  }
 }
 
 void ChildMode::onPinEntered(uint32_t pin) {
@@ -76,19 +121,29 @@ void ChildMode::onPinCancel() {
 
 static_assert(ADV_TYPE_NONE == 0, "childSenderApproved assumes ADV_TYPE_NONE == 0");
 
-bool ChildMode::onIncomingText(const ContactInfo& from, uint8_t txt_type, const char* text) {
+bool ChildMode::onIncomingText(const ContactInfo& from, uint8_t txt_type,
+                               uint32_t sender_timestamp, const char* text) {
   // CHILD_MODE: only pre-approved contacts may message or command the child.
-  // (Unknown pubkeys are already dropped by the crypto layer; this rejects
-  //  anon/transient contacts, type == ADV_TYPE_NONE.)
-  if (!childSenderApproved(from.type)) return true;   // drop: suppress from UI + commands
+  if (!childSenderApproved(from.type)) return true;   // drop strangers
 
   PinChange pc;
   if (parseChildCommand(text, pc) == CHILD_CMD_PIN_CHANGE) {
-    if (pc.old_pin == _cfg.pin) {
-      _cfg.pin = pc.new_pin;
-      save();
-    }
-    return true;   // consume the command either way (don't surface as a message)
+    if (pc.old_pin == _cfg.pin) { _cfg.pin = pc.new_pin; save(); }
+    return true;   // consume the command
   }
-  return false;
+
+  // Capture approved displayable DMs into the child store, then suppress normal handling.
+  if (txt_type == TXT_TYPE_PLAIN || txt_type == TXT_TYPE_SIGNED_PLAIN) {
+    captureMessage(from.name, text, sender_timestamp, false);
+    return true;
+  }
+  return false;   // e.g. CLI_DATA -> let normal firmware path handle it
+}
+
+bool ChildMode::onIncomingChannel(uint8_t channel_idx, const char* channel_name,
+                                  uint32_t timestamp, const char* text) {
+  (void)channel_idx;
+  // Group membership == approved (parent controls the channel). Capture + suppress.
+  captureMessage(channel_name, text, timestamp, true);
+  return true;
 }
