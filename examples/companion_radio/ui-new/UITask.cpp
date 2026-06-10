@@ -685,6 +685,23 @@ void UITask::setCurrScreen(UIScreen* c) {
   _next_refresh = 100;
 }
 
+#ifdef CHILD_MODE
+// CHILD_MODE seam: switch screen + wake the display so an incoming message lights up the
+// device (else auto-off leaves it dark until a keypress). same wake as newMsg(), no MsgPreview.
+void UITask::showScreenAwake(UIScreen* s) {
+  setCurrScreen(s);
+  if (_display != NULL) {
+    if (!_display->isOn() && !hasConnection()) {
+      _display->turnOn();
+    }
+    if (_display->isOn()) {
+      _auto_off = millis() + AUTO_OFF_MILLIS;  // extend the auto-off timer
+      _next_refresh = 100;                     // trigger refresh
+    }
+  }
+}
+#endif
+
 /*
   hardware-agnostic pre-shutdown activity should be done here
 */

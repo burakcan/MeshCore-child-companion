@@ -95,7 +95,7 @@ void ChildMode::captureMessage(const char* origin, const char* text, uint32_t ts
   ui_task.notify(is_channel ? UIEventType::channelMessage : UIEventType::contactMessage);
   _reader_return = RETURN_HOME;
   _reader.open(&_store, 0);             // newest
-  ui_task.showScreen(&_reader);
+  ui_task.showScreenAwake(&_reader);    // wake the display so the message lights up
 }
 
 void ChildMode::onReaderBack() {

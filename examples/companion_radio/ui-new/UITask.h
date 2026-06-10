@@ -80,6 +80,7 @@ public:
   UIScreen* getFullHomeScreen() { return home; }
 #ifdef CHILD_MODE
   void setInitialScreen(UIScreen* s) { _initial_override = s; }
+  void showScreenAwake(UIScreen* s);   // showScreen + wakes the display (mirrors newMsg)
 #endif
 
   void gotoHomeScreen() { setCurrScreen(home); }

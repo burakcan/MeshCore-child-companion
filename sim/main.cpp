@@ -2,16 +2,10 @@
 // Arduino-free firmware code (widgets, child/ logic, ChildMessageScreen) and
 // drives it from a host DisplayDriver (terminal) + keyboard.
 //
-// This harness compiles the REAL, Arduino-free UI widgets and child-mode logic
-// from the firmware tree (ListMenuScreen, PinEntryScreen, StatusHeader,
-// MenuModel, ChildConfig, ChildCommands) and drives them with a host
-// DisplayDriver (terminal renderer) + keyboard input.
-//
-// The screen-flow glue below MIRRORS examples/companion_radio/child_mode/
-// ChildMode.cpp and ChildHomeScreen.cpp. Those two files are NOT compiled here
-// because they pull in MyMesh.h / UITask.h (full firmware). If the UI agent
-// changes the flow there, mirror the change here. Everything you actually SEE
-// rendered (menu, PIN pad, status header) is the real firmware code.
+// Caveat: the screen-flow glue below is a hand copy of
+// examples/companion_radio/child_mode/ChildMode.cpp and the home screen copies
+// ChildHomeScreen.cpp, because those pull in MyMesh.h / UITask.h and won't
+// compile here. If the flow or home layout changes there, update it here too.
 
 #include <helpers/ui/ListMenuScreen.h>
 #include <helpers/ui/PinEntryScreen.h>
@@ -19,11 +13,15 @@
 #include <helpers/ui/BatteryUtils.h>
 #include <helpers/child/ChildConfig.h>
 #include <helpers/child/ChildCommands.h>
+#include <helpers/child/ChildMessageStore.h>
+#include <ChildMessageScreen.h>   // real reader (via -I examples/companion_radio/child_mode)
 
 #include "host_display.h"
 #include "host_input.h"
+#include "host_buzzer.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <ctime>
 
@@ -35,10 +33,24 @@ static const char* CFG_PATH = "sim/child_cfg.bin";
 static const char* NODE_NAME = "Mesh";
 static const uint16_t FAKE_BATT_MV = 4100;
 
-// ---- callback seam so the home screen can open the menu ----------------------
-struct HomeOwner { virtual void openMenu() = 0; };
+// Demo payloads for the inject keys (long enough to exercise word-wrap/scroll).
+static const char* DEMO_DM   = "Hi sweetie! Please come home by six oclock for dinner, ok? Love you lots, Mom";
+static const char* DEMO_CHAN = "Soccer practice is moved to 5pm today at the north field. Bring water!";
 
-// Mirror of ChildHomeScreen: status header + big name + "press = menu".
+// Buzzer ringtones, copied verbatim from UITask::notify() / genericBuzzer so
+// the emulated sound matches the device. Mirror these if the firmware changes.
+static const char* TUNE_DM      = "MsgRcv3:d=4,o=6,b=200:32e,32g,32b,16c7";
+static const char* TUNE_CHAN    = "kerplop:d=16,o=6,b=120:32g#,32c#";
+static const char* TUNE_ACK     = "ack:d=32,o=8,b=120:c";
+static const char* TUNE_STARTUP = "Startup:d=4,o=5,b=160:16c6,16e6,8g6";
+
+// ---- callback seam so the home screen can reach the controller --------------
+struct HomeOwner {
+  virtual void openMenu() = 0;
+  virtual int  unreadCount() = 0;
+};
+
+// Mirror of ChildHomeScreen: status header + big name + unread badge + hint.
 class HostChildHome : public UIScreen {
   HomeOwner* _owner;
 public:
@@ -49,12 +61,19 @@ public:
     struct tm* lt = localtime(&now);
     snprintf(timebuf, sizeof(timebuf), "%02d:%02d", lt->tm_hour, lt->tm_min);
 
-    int pct = batteryPercent(FAKE_BATT_MV);
-    StatusHeader::draw(d, NODE_NAME, timebuf, pct, true);
+    StatusHeader::draw(d, NODE_NAME, timebuf, batteryPercent(FAKE_BATT_MV), true);
 
     d.setColor(DisplayDriver::LIGHT);
     d.setTextSize(2);
     d.drawTextCentered(d.width() / 2, 26, NODE_NAME);
+
+    int unread = _owner->unreadCount();
+    if (unread > 0) {
+      char badge[16];
+      snprintf(badge, sizeof(badge), "New: %d", unread);
+      d.setTextSize(1);
+      d.drawTextCentered(d.width() / 2, 42, badge);
+    }
     d.setTextSize(1);
     d.drawTextCentered(d.width() / 2, 52, "press = menu");
     return 1000;
@@ -65,34 +84,69 @@ public:
   }
 };
 
-// Placeholder for the "full UI" you unlock with the correct PIN.
+// Placeholder for the real "full UI" unlocked by the correct PIN (not compiled
+// in the thin harness, see README).
 class FullUiScreen : public UIScreen {
 public:
   int render(DisplayDriver& d) override {
     d.setColor(DisplayDriver::LIGHT);
     d.setTextSize(1);
-    d.drawTextCentered(d.width() / 2, 20, "FULL UI UNLOCKED");
-    d.drawTextCentered(d.width() / 2, 40, "(esc = back)");
+    d.drawTextCentered(d.width() / 2, 16, "FULL UI UNLOCKED");
+    d.drawTextCentered(d.width() / 2, 34, "[sim placeholder]");
+    d.drawTextCentered(d.width() / 2, 48, "esc = back");
     return 500;
   }
   bool handleInput(char c) override { return c == KEY_CANCEL || c == KEY_SELECT; }
 };
 
-// ---- the simulator: mirrors ChildMode's MenuHandler/PinHandler flow ----------
-class Sim : public HomeOwner, public MenuHandler, public PinHandler {
-  HostDisplay& _disp;
-  ChildConfig _cfg;
-  HostChildHome _home;
-  ListMenuScreen _menu;
-  PinEntryScreen _pin;
-  FullUiScreen _full;
-  UIScreen* _curr;
-  char _toast[64];
+// ---- simulator: mirrors ChildMode's Menu/Pin/Reader state machine -----------
+class Sim : public HomeOwner, public MenuHandler, public PinHandler, public ReaderHandler {
+  HostDisplay&       _disp;
+  ChildConfig        _cfg;
+  HostChildHome      _home;
+  ListMenuScreen     _menu;
+  PinEntryScreen     _pin;
+  ChildMessageStore  _store;          // real
+  ChildMessageScreen _reader;         // real
+  FullUiScreen       _full;
+  UIScreen*          _curr;
+  char               _toast[80];
+  unsigned long      _auto_off;     // deadline (hostMillis) to blank the display
+  int                _auto_off_ms;  // AUTO_OFF_MILLIS (15000 on device; env-overridable)
 
-  static constexpr const char* MENU_ITEMS[2] = { "Settings", "Back" };
+  enum MenuContext { MENU_TOP, MENU_MESSAGES } _menu_context;
+  enum ReaderReturn { RETURN_HOME, RETURN_LIST } _reader_return;
+
+  static constexpr const char* TOP_ITEMS[3] = { "Messages", "Settings", "Back" };
+  static constexpr const char* NO_MSG_ITEMS[1] = { "No messages" };
 
 public:
-  Sim(HostDisplay& d) : _disp(d), _home(this), _curr(&_home) { _toast[0] = 0; }
+  Sim(HostDisplay& d)
+    : _disp(d), _home(this), _reader(this), _curr(&_home),
+      _menu_context(MENU_TOP), _reader_return(RETURN_HOME) {
+    _toast[0] = 0;
+    const char* e = getenv("SIM_AUTO_OFF_MS");   // e.g. SIM_AUTO_OFF_MS=3000 to test faster
+    _auto_off_ms = e ? atoi(e) : 15000;          // AUTO_OFF_MILLIS default for the OLED L1
+    if (_auto_off_ms < 0) _auto_off_ms = 0;
+    _auto_off = hostMillis() + _auto_off_ms;
+  }
+
+  // --- display sleep/wake, mirroring UITask auto-off + checkDisplayOn ---
+  bool displayOn() const { return _disp.isOn(); }
+  void tickAutoOff() {     // called each loop after render (as UITask does)
+    if (_auto_off_ms > 0 && _disp.isOn() && hostMillis() > _auto_off) _disp.turnOff();
+  }
+  void noteActivity() { _auto_off = hostMillis() + _auto_off_ms; }
+  void onUiKey(int key) {  // checkDisplayOn: if asleep, wake + swallow the press
+    if (_auto_off_ms > 0 && !_disp.isOn()) { _disp.turnOn(); noteActivity(); return; }
+    noteActivity();
+    feedKey(key);
+  }
+  int secsToSleep() const {
+    if (_auto_off_ms == 0 || !_disp.isOn()) return -1;
+    unsigned long now = hostMillis();
+    return now >= _auto_off ? 0 : (int)((_auto_off - now + 999) / 1000);
+  }
 
   void loadOrSeed() {
     uint8_t buf[CHILD_CONFIG_BLOB_LEN];
@@ -118,41 +172,77 @@ public:
 
   // HomeOwner
   void openMenu() override {
-    _menu.set("Menu", MENU_ITEMS, 2, this);
+    _menu_context = MENU_TOP;
+    _menu.set("Menu", TOP_ITEMS, 3, this);
     _curr = &_menu;
   }
+  int unreadCount() override { return _store.unread(); }
+
+  void openMessages() {
+    _menu_context = MENU_MESSAGES;
+    if (_store.count() == 0) _menu.set("Messages", NO_MSG_ITEMS, 1, this);
+    else                     _menu.set("Messages", _store.labelPtrs(), _store.count(), this);
+    _curr = &_menu;
+  }
+
   // MenuHandler
   void onMenuSelect(int idx) override {
-    if (idx == 0) { _pin.begin("Enter PIN", this); _curr = &_pin; }
-    else          { _curr = &_home; }
+    if (_menu_context == MENU_MESSAGES) {
+      if (_store.count() == 0) { openMenu(); return; }
+      _reader_return = RETURN_LIST;
+      _reader.open(&_store, idx);
+      _curr = &_reader;
+      return;
+    }
+    if (idx == 0)      openMessages();
+    else if (idx == 1) { _pin.begin("Enter PIN", this); _curr = &_pin; }
+    else               _curr = &_home;
   }
-  void onMenuCancel() override { _curr = &_home; }
+  void onMenuCancel() override {
+    if (_menu_context == MENU_MESSAGES) _store.markAllRead();
+    _curr = &_home;
+  }
+
   // PinHandler
   void onPinEntered(uint32_t entered) override {
-    if (entered == _cfg.pin) { setToast("PIN ok -> full UI"); _curr = &_full; }
+    if (entered == _cfg.pin) { hostBuzzerPlay(TUNE_ACK); setToast("PIN ok -> full UI"); _curr = &_full; }
     else                     { setToast("wrong PIN"); _curr = &_home; }
   }
   void onPinCancel() override { _curr = &_home; }
 
-  // Mirror of ChildMode::onIncomingText for the "!pin old new" command.
-  void injectIncoming(const char* text) {
+  // ReaderHandler
+  void onReaderBack() override {
+    if (_reader_return == RETURN_LIST) openMessages();
+    else { _store.markAllRead(); _curr = &_home; }
+  }
+
+  // Mirror of ChildMode::captureMessage: store it, sound the buzzer (as
+  // UITask::notify does), pop the reader on newest.
+  void captureMessage(const char* origin, const char* text, bool is_channel) {
+    _store.add(origin, text, (uint32_t)time(nullptr), is_channel);
+    hostBuzzerPlay(is_channel ? TUNE_CHAN : TUNE_DM);
+    _reader_return = RETURN_HOME;
+    _reader.open(&_store, 0);
+    _curr = &_reader;
+    if (_auto_off_ms > 0 && !_disp.isOn()) _disp.turnOn();   // showScreenAwake: light up on rx
+    noteActivity();
+    char t[64]; snprintf(t, sizeof(t), "rx %s from %s", is_channel ? "chan" : "dm", origin);
+    setToast(t);
+  }
+
+  // Mirror of ChildMode::onIncomingText for the "!pin old new" command path.
+  void injectPinCommand(const char* text) {
     PinChange pc;
     if (parseChildCommand(text, pc) == CHILD_CMD_PIN_CHANGE) {
-      if (pc.old_pin == _cfg.pin) {
-        _cfg.pin = pc.new_pin; save();
-        char t[64]; snprintf(t, sizeof(t), "rx '%s' -> pin now %u", text, _cfg.pin);
-        setToast(t);
-      } else {
-        setToast("rx !pin: wrong old pin");
-      }
-    } else {
-      setToast("rx: not a child command");
-    }
+      if (pc.old_pin == _cfg.pin) { _cfg.pin = pc.new_pin; save(); setToast("pin changed"); }
+      else setToast("rx !pin: wrong old pin");
+    } else setToast("rx: not a child command");
   }
 
   void feedKey(int key) { if (_curr) _curr->handleInput((char)key); }
 };
-constexpr const char* Sim::MENU_ITEMS[2];
+constexpr const char* Sim::TOP_ITEMS[3];
+constexpr const char* Sim::NO_MSG_ITEMS[1];
 
 int main() {
   HostDisplay disp;
@@ -160,25 +250,43 @@ int main() {
   sim.loadOrSeed();
 
   hostInputBegin();
-  fputs("\x1b[2J", stdout);  // clear screen once
+  fputs("\x1b[2J", stdout);
+  hostBuzzerPlay(TUNE_STARTUP);   // device plays this in UITask::begin()
 
-  char status[160];
+  char status[260];
   bool running = true;
   while (running) {
+    int delay = 1000;
     disp.startFrame(DisplayDriver::DARK);
-    int delay = sim.curr()->render(disp);
+    if (sim.displayOn()) {
+      delay = sim.curr()->render(disp);   // blank frame stays dark when asleep
+    }
+
+    char sleepinfo[40];
+    if (!sim.displayOn()) snprintf(sleepinfo, sizeof(sleepinfo), "[ASLEEP - press a key]");
+    else { int s = sim.secsToSleep(); snprintf(sleepinfo, sizeof(sleepinfo), "sleep in %ds", s); }
 
     snprintf(status, sizeof(status),
-      "arrows=joystick  enter=press  bksp=back  s=select  p=inject !pin  q=quit"
-      "   [pin=%u]  %s", sim.pin(), sim.toast() ? sim.toast() : "");
+      "arrows=move enter=press bksp/esc=back s=select | m=rx dm  n=rx chan  p=!pin  "
+      "b=buzzer[%s]  q=quit  | %s  [pin=%u]  %s",
+      hostBuzzerMuted() ? "off" : "on", sleepinfo, sim.pin(),
+      sim.toast() ? sim.toast() : "");
     disp.setStatusLine(status);
     disp.endFrame();
 
-    int key = hostInputPoll(delay > 0 ? delay : 100);
-    if (key == 0) continue;
-    if (key == SIM_KEY_QUIT) { running = false; }
-    else if (key == SIM_KEY_INJECT_PIN) { sim.injectIncoming("!pin 1234 5678"); }
-    else { sim.feedKey(key); }
+    sim.tickAutoOff();   // blank the display if the idle deadline passed
+
+    if (delay <= 0 || delay > 500) delay = 500;   // keep the sleep countdown ticking
+    int key = hostInputPoll(delay);
+    switch (key) {
+      case 0:                     break;
+      case SIM_KEY_QUIT:          running = false; break;
+      case SIM_KEY_INJECT_PIN:    sim.injectPinCommand("!pin 1234 5678"); break;
+      case SIM_KEY_INJECT_MSG:    sim.captureMessage("Mom", DEMO_DM, false); break;
+      case SIM_KEY_INJECT_CHAN:   sim.captureMessage("#soccer", DEMO_CHAN, true); break;
+      case SIM_KEY_TOGGLE_BUZZER: hostBuzzerToggleMute(); break;
+      default:                    sim.onUiKey(key); break;   // wake-or-feed
+    }
   }
 
   hostInputEnd();

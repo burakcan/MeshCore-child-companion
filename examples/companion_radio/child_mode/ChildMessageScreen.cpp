@@ -36,10 +36,12 @@ int ChildMessageScreen::render(DisplayDriver& display) {
     display.print(linebuf);
     y += 10;
   }
-  // simple scroll affordance
+  // page indicator (page <current>/<total>; _scroll advances in page steps)
   if (_nlines > CHILD_MSG_READER_VIS) {
+    int page  = _scroll / CHILD_MSG_READER_VIS + 1;
+    int pages = (_nlines + CHILD_MSG_READER_VIS - 1) / CHILD_MSG_READER_VIS;
     char ind[8];
-    snprintf(ind, sizeof(ind), "%d/%d", _scroll + 1, _nlines);
+    snprintf(ind, sizeof(ind), "%d/%d", page, pages);
     display.drawTextRightAlign(display.width(), 54, ind);
   }
   return 1000;
@@ -48,10 +50,10 @@ int ChildMessageScreen::render(DisplayDriver& display) {
 bool ChildMessageScreen::handleInput(char c) {
   switch ((unsigned char)c) {
     case KEY_UP:
-      if (_scroll > 0) _scroll--;
+      if (_scroll > 0) _scroll -= CHILD_MSG_READER_VIS;   // page up
       return true;
     case KEY_DOWN:
-      if (_nlines > CHILD_MSG_READER_VIS && _scroll < _nlines - CHILD_MSG_READER_VIS) _scroll++;
+      if (_scroll + CHILD_MSG_READER_VIS < _nlines) _scroll += CHILD_MSG_READER_VIS;  // page down
       return true;
     case KEY_ENTER:
     case KEY_SELECT:

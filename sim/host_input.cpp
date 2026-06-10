@@ -4,6 +4,13 @@
 #include <unistd.h>
 #include <sys/select.h>
 #include <cstdio>
+#include <chrono>
+
+unsigned long hostMillis() {
+  static auto t0 = std::chrono::steady_clock::now();
+  auto now = std::chrono::steady_clock::now();
+  return (unsigned long)std::chrono::duration_cast<std::chrono::milliseconds>(now - t0).count();
+}
 
 static struct termios s_orig;
 
@@ -63,6 +70,9 @@ int hostInputPoll(int timeout_ms) {
     case 'k': case 'K':    return KEY_UP;
     case 'j': case 'J':    return KEY_DOWN;
     case 'p': case 'P':    return SIM_KEY_INJECT_PIN;
+    case 'm': case 'M':    return SIM_KEY_INJECT_MSG;
+    case 'n': case 'N':    return SIM_KEY_INJECT_CHAN;
+    case 'b': case 'B':    return SIM_KEY_TOGGLE_BUZZER;
     case 'q': case 'Q':    return SIM_KEY_QUIT;
   }
   return 0;
