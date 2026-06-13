@@ -8,6 +8,9 @@
 #define CHILD_DEFAULT_PIN 1234
 #endif
 
+// Read-ack text: "✓ seen" (UTF-8). Compile-time for now; OTA-configurable later.
+#define CHILD_READ_ACK_TEXT "\xE2\x9C\x93 seen"
+
 extern UITask ui_task;        // declared in main.cpp
 
 static const uint8_t CHILD_KEY[7] = {'c','h','i','l','d',0,0};
@@ -22,8 +25,7 @@ static const char* const NO_MSG_ITEMS[] = { "No messages" };
 
 ChildMode child_mode;         // single global instance
 
-ChildMode::ChildMode() : _home(this), _reader(this), _menu_context(MENU_TOP),
-                         _reader_return(RETURN_HOME) {}
+ChildMode::ChildMode() : _home(this), _reader(this), _alert(this), _menu_context(MENU_TOP) {}
 
 void ChildMode::loadOrSeed() {
   uint8_t buf[CHILD_BLOB_LEN];
@@ -62,12 +64,27 @@ void ChildMode::openMessages() {
   ui_task.showScreen(&_menu);
 }
 
+int ChildMode::newestUnreadIndex() const {
+  for (int i = 0; i < _store.count(); i++) {
+    if (!_store.at(i).read) return i;
+  }
+  return 0;   // fallback (alert is only shown while something is unread)
+}
+
+void ChildMode::openMessage(int idx) {
+  ChildReadResult r = _store.markRead(idx);
+  if (r.transitioned) {
+    if (r.is_channel) the_mesh.sendChildGroupText(r.channel_idx, CHILD_READ_ACK_TEXT);
+    else              the_mesh.sendChildText(r.sender, CHILD_READ_ACK_TEXT);
+  }
+  _reader.open(&_store, idx);
+  ui_task.showScreenAwake(&_reader);
+}
+
 void ChildMode::onMenuSelect(int idx) {
   if (_menu_context == MENU_MESSAGES) {
     if (_store.count() == 0) { openMenu(); return; }   // "No messages" -> back to menu
-    _reader_return = RETURN_LIST;
-    _reader.open(&_store, idx);
-    ui_task.showScreen(&_reader);
+    openMessage(idx);
     return;
   }
   // MENU_TOP
@@ -82,29 +99,28 @@ void ChildMode::onMenuSelect(int idx) {
 }
 
 void ChildMode::onMenuCancel() {
-  if (_menu_context == MENU_MESSAGES) {
-    _store.markAllRead();
-    ui_task.showScreen(&_home);
-  } else {
-    ui_task.showScreen(&_home);
-  }
+  ui_task.showScreen(&_home);
 }
 
-void ChildMode::captureMessage(const char* origin, const char* text, uint32_t ts, bool is_channel) {
-  _store.add(origin, text, ts, is_channel);
+void ChildMode::captureMessage(const char* origin, const char* text, uint32_t ts, bool is_channel,
+                               const uint8_t* sender_prefix, uint8_t channel_idx) {
+  _store.add(origin, text, ts, is_channel, sender_prefix, channel_idx);
   ui_task.notify(is_channel ? UIEventType::channelMessage : UIEventType::contactMessage);
-  _reader_return = RETURN_HOME;
-  _reader.open(&_store, 0);             // newest
-  ui_task.showScreenAwake(&_reader);    // wake the display so the message lights up
+  _alert.open(&_store);
+  ui_task.showScreenAwake(&_alert);     // notification, not auto-open
 }
 
 void ChildMode::onReaderBack() {
-  if (_reader_return == RETURN_LIST) {
-    openMessages();
-  } else {
-    _store.markAllRead();
-    ui_task.showScreen(&_home);
-  }
+  if (_store.count() > 0) openMessages();   // back to the list so the kid can read more
+  else ui_task.showScreen(&_home);
+}
+
+void ChildMode::onAlertOpen() {
+  openMessage(newestUnreadIndex());
+}
+
+void ChildMode::onAlertDismiss() {
+  ui_task.showScreen(&_home);               // messages stay unread; badge shows the count
 }
 
 void ChildMode::onPinEntered(uint32_t pin) {
@@ -134,7 +150,7 @@ bool ChildMode::onIncomingText(const ContactInfo& from, uint8_t txt_type,
 
   // Capture approved displayable DMs into the child store, then suppress normal handling.
   if (txt_type == TXT_TYPE_PLAIN || txt_type == TXT_TYPE_SIGNED_PLAIN) {
-    captureMessage(from.name, text, sender_timestamp, false);
+    captureMessage(from.name, text, sender_timestamp, false, from.id.pub_key, 0xFF);
     return true;
   }
   return false;   // e.g. CLI_DATA -> let normal firmware path handle it
@@ -142,8 +158,7 @@ bool ChildMode::onIncomingText(const ContactInfo& from, uint8_t txt_type,
 
 bool ChildMode::onIncomingChannel(uint8_t channel_idx, const char* channel_name,
                                   uint32_t timestamp, const char* text) {
-  (void)channel_idx;
   // Group membership == approved (parent controls the channel). Capture + suppress.
-  captureMessage(channel_name, text, timestamp, true);
+  captureMessage(channel_name, text, timestamp, true, nullptr, channel_idx);
   return true;
 }

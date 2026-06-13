@@ -176,6 +176,8 @@ bool DataStore::formatFileSystem() {
   bool fs_success = ((fs::SPIFFSFS *)_fs)->format();
   esp_err_t nvs_err = nvs_flash_erase(); // no need to reinit, will be done by reboot
   return fs_success && (nvs_err == ESP_OK);
+#elif defined(HOST_PLATFORM)
+  return _fs->format() && (_fsExtra == nullptr || _fsExtra->format());
 #else
   #error "need to implement format()"
 #endif

@@ -10,24 +10,36 @@ struct ChildMessage {
   uint32_t timestamp;
   char     origin[CHILD_MSG_ORIGIN];
   char     text[CHILD_MSG_BODY];
+  uint8_t  sender[6];      // DM: sender pubkey prefix; zeroed for group
+  uint8_t  channel_idx;    // group: channel index; 0xFF for DM
   bool     is_channel;
   bool     read;
 };
 
-// Fixed RAM ring of received messages, newest-first via at(0). No heap, no hardware deps.
+// Returned by markRead(): identity needed to send the read-ack, and whether this
+// call was the unread->read transition (so the caller acks exactly once).
+struct ChildReadResult {
+  bool     transitioned;
+  bool     is_channel;
+  uint8_t  sender[6];
+  uint8_t  channel_idx;
+};
+
+// fixed RAM ring of received messages, newest-first via at(0). no heap/hardware deps.
 class ChildMessageStore {
   ChildMessage _slots[CHILD_MSG_CAP];
   char         _labels[CHILD_MSG_CAP][CHILD_MSG_LABEL];
   const char*  _label_ptrs[CHILD_MSG_CAP];
   uint8_t      _count;
   uint8_t      _head;    // physical index of next write slot
-  uint8_t      _unread;
+  int          physIndex(int idx) const;   // logical (0=newest) -> physical slot
 public:
   ChildMessageStore();
-  void add(const char* origin, const char* text, uint32_t ts, bool is_channel);
+  void add(const char* origin, const char* text, uint32_t ts, bool is_channel,
+           const uint8_t* sender_prefix, uint8_t channel_idx);
   int  count() const  { return _count; }
-  int  unread() const { return _unread; }
-  void markAllRead();
+  int  unread() const;                     // number of slots with read == false
+  ChildReadResult markRead(int idx);       // marks at(idx) read; reports transition + identity
   const ChildMessage& at(int idx) const;   // idx 0 = newest
-  const char* const* labelPtrs();          // rebuilds labels; returns array of count()
+  const char* const* labelPtrs();          // rebuilds labels (unread rows get "* "); returns count()
 };

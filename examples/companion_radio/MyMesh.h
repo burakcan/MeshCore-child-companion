@@ -188,6 +188,9 @@ public:
   bool childPutBlob(const uint8_t key[], int key_len, const uint8_t src_buf[], int len) {
     return putBlobByKey(key, key_len, src_buf, len);
   }
+  // CHILD_MODE seam: child read-ack senders (DM reply / group post)
+  bool sendChildText(const uint8_t* sender_prefix, const char* text);
+  bool sendChildGroupText(uint8_t channel_idx, const char* text);
 #endif
 
 private:

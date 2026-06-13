@@ -6,24 +6,27 @@
 #include <helpers/child/ChildMessageStore.h>
 #include "ChildHomeScreen.h"
 #include "ChildMessageScreen.h"
+#include "ChildAlertScreen.h"
 
 namespace mesh { struct Identity; }
 struct ContactInfo;
 
-class ChildMode : public MenuHandler, public PinHandler, public ReaderHandler {
+class ChildMode : public MenuHandler, public PinHandler, public ReaderHandler, public AlertHandler {
   ChildConfig _cfg;
   ChildHomeScreen _home;
   ListMenuScreen _menu;
   PinEntryScreen _pin;
   ChildMessageStore _store;
   ChildMessageScreen _reader;
+  ChildAlertScreen _alert;
   enum MenuContext { MENU_TOP, MENU_MESSAGES };
   MenuContext _menu_context;
-  enum ReaderReturn { RETURN_HOME, RETURN_LIST };
-  ReaderReturn _reader_return;
   void loadOrSeed();
   void save();
-  void captureMessage(const char* origin, const char* text, uint32_t ts, bool is_channel);
+  void captureMessage(const char* origin, const char* text, uint32_t ts, bool is_channel,
+                      const uint8_t* sender_prefix, uint8_t channel_idx);
+  int  newestUnreadIndex() const;
+  void openMessage(int idx);          // mark read + read-ack + open reader
 public:
   ChildMode();
   void begin();
@@ -43,6 +46,9 @@ public:
   void onPinCancel() override;
   // ReaderHandler
   void onReaderBack() override;
+  // AlertHandler
+  void onAlertOpen() override;
+  void onAlertDismiss() override;
 };
 
 extern ChildMode child_mode;

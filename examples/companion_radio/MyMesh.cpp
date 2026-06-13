@@ -610,6 +610,33 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
 #endif
 }
 
+#ifdef CHILD_MODE
+// CHILD_MODE seam: DM read-ack to the contact with this 6-byte prefix.
+// mirrors CMD_SEND_TXT_MSG: lookup -> sendMessage -> record in expected_ack_table.
+bool MyMesh::sendChildText(const uint8_t* sender_prefix, const char* text) {
+  ContactInfo* r = lookupContactByPubKey(sender_prefix, 6);
+  if (r == NULL) return false;
+  uint32_t expected_ack = 0, est_timeout = 0;
+  int result = sendMessage(*r, getRTCClock()->getCurrentTimeUnique(), 0, text, expected_ack, est_timeout);
+  if (result == MSG_SEND_FAILED) return false;
+  if (expected_ack) {
+    expected_ack_table[next_ack_idx].msg_sent = _ms->getMillis();
+    expected_ack_table[next_ack_idx].ack = expected_ack;
+    expected_ack_table[next_ack_idx].contact = r;
+    next_ack_idx = (next_ack_idx + 1) % EXPECTED_ACK_TABLE_SIZE;
+  }
+  return true;
+}
+
+// CHILD_MODE seam: read-ack to a group channel (group sees "<name>: <text>").
+bool MyMesh::sendChildGroupText(uint8_t channel_idx, const char* text) {
+  ChannelDetails channel;
+  if (!getChannel(channel_idx, channel)) return false;
+  return sendGroupMessage(getRTCClock()->getCurrentTimeUnique(), channel.channel,
+                          _prefs.node_name, text, strlen(text));
+}
+#endif
+
 void MyMesh::onChannelDataRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint16_t data_type,
                                const uint8_t *data, size_t data_len) {
   if (data_len > MAX_CHANNEL_DATA_LENGTH) {

@@ -8,6 +8,9 @@
   #define FILESYSTEM  Adafruit_LittleFS
 
   using namespace Adafruit_LittleFS_Namespace;
+#elif defined(HOST_PLATFORM)
+  #include <HostFS.h>          // PC simulator: POSIX-backed filesystem shim
+  #define FILESYSTEM  HostFS
 #endif
 #include <Identity.h>
 
