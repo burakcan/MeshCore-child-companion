@@ -4,14 +4,17 @@
 #include <helpers/ui/PinEntryScreen.h>
 #include <helpers/child/ChildConfig.h>
 #include <helpers/child/ChildMessageStore.h>
+#include <helpers/child/ChildQuestion.h>
 #include "ChildHomeScreen.h"
 #include "ChildMessageScreen.h"
 #include "ChildAlertScreen.h"
+#include "ChildQuestionScreen.h"
 
 namespace mesh { struct Identity; }
 struct ContactInfo;
 
-class ChildMode : public MenuHandler, public PinHandler, public ReaderHandler, public AlertHandler {
+class ChildMode : public MenuHandler, public PinHandler, public ReaderHandler,
+                  public AlertHandler, public QuestionHandler {
   ChildConfig _cfg;
   ChildHomeScreen _home;
   ListMenuScreen _menu;
@@ -19,14 +22,18 @@ class ChildMode : public MenuHandler, public PinHandler, public ReaderHandler, p
   ChildMessageStore _store;
   ChildMessageScreen _reader;
   ChildAlertScreen _alert;
+  ChildQuestionScreen _question_screen;
+  ChildQuestion _question;            // parsed view of the currently-open question
+  int _question_msg_idx;
   enum MenuContext { MENU_TOP, MENU_MESSAGES };
   MenuContext _menu_context;
   void loadOrSeed();
   void save();
   void captureMessage(const char* origin, const char* text, uint32_t ts, bool is_channel,
-                      const uint8_t* sender_prefix, uint8_t channel_idx);
+                      const uint8_t* sender_prefix, uint8_t channel_idx, bool is_question);
   int  newestUnreadIndex() const;
-  void openMessage(int idx);          // mark read + read-ack + open reader
+  void openMessage(int idx);
+  void openQuestion(int idx);
 public:
   ChildMode();
   void begin();
@@ -49,6 +56,9 @@ public:
   // AlertHandler
   void onAlertOpen() override;
   void onAlertDismiss() override;
+  // QuestionHandler
+  void onQuestionSelect(int opt) override;
+  void onQuestionCancel() override;
 };
 
 extern ChildMode child_mode;

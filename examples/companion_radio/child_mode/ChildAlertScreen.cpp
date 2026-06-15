@@ -5,13 +5,14 @@
 int ChildAlertScreen::render(DisplayDriver& display) {
   if (!_store || _store->count() == 0) return 1000;
   int nu = _store->unread();
-  const char* origin = _store->at(0).origin;   // newest message's sender/channel
+  const ChildMessage& m = _store->at(0);            // newest
+  bool is_q = m.is_question;
 
-  StatusHeader::draw(display, "New message", "", 0, true);
+  StatusHeader::draw(display, is_q ? "Question" : "New message", "", 0, true);
 
   display.setColor(DisplayDriver::LIGHT);
   display.setTextSize(2);
-  display.drawTextCentered(display.width() / 2, 22, origin);
+  display.drawTextCentered(display.width() / 2, 22, m.origin);
 
   display.setTextSize(1);
   if (nu > 1) {
@@ -19,7 +20,7 @@ int ChildAlertScreen::render(DisplayDriver& display) {
     snprintf(extra, sizeof(extra), "+%d more", nu - 1);
     display.drawTextCentered(display.width() / 2, 44, extra);
   }
-  display.drawTextCentered(display.width() / 2, 54, "press = read");
+  display.drawTextCentered(display.width() / 2, 54, is_q ? "press = answer" : "press = read");
   return 1000;
 }
 

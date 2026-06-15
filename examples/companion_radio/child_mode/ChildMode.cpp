@@ -25,7 +25,9 @@ static const char* const NO_MSG_ITEMS[] = { "No messages" };
 
 ChildMode child_mode;         // single global instance
 
-ChildMode::ChildMode() : _home(this), _reader(this), _alert(this), _menu_context(MENU_TOP) {}
+ChildMode::ChildMode()
+  : _home(this), _reader(this), _alert(this), _question_screen(this),
+    _question_msg_idx(0), _menu_context(MENU_TOP) {}
 
 void ChildMode::loadOrSeed() {
   uint8_t buf[CHILD_BLOB_LEN];
@@ -45,7 +47,7 @@ void ChildMode::save() {
 
 void ChildMode::begin() {
   loadOrSeed();
-  ui_task.setInitialScreen(&_home);     // boot straight into child UI
+  ui_task.setInitialScreen(&_home);
 }
 
 void ChildMode::openMenu() {
@@ -66,12 +68,22 @@ void ChildMode::openMessages() {
 
 int ChildMode::newestUnreadIndex() const {
   for (int i = 0; i < _store.count(); i++) {
-    if (!_store.at(i).read) return i;
+    if (childMsgPending(_store.at(i))) return i;
   }
-  return 0;   // fallback (alert is only shown while something is unread)
+  return 0;
+}
+
+void ChildMode::openQuestion(int idx) {
+  const ChildMessage& m = _store.at(idx);
+  parseChildQuestion(m.text, _question);
+  _question_msg_idx = idx;
+  int answered = (m.answer_idx == 0xFF) ? -1 : (int)m.answer_idx;
+  _question_screen.open(&_question, answered);
+  ui_task.showScreen(&_question_screen);
 }
 
 void ChildMode::openMessage(int idx) {
+  if (_store.at(idx).is_question) { openQuestion(idx); return; }
   ChildReadResult r = _store.markRead(idx);
   if (r.transitioned) {
     if (r.is_channel) the_mesh.sendChildGroupText(r.channel_idx, CHILD_READ_ACK_TEXT);
@@ -83,17 +95,16 @@ void ChildMode::openMessage(int idx) {
 
 void ChildMode::onMenuSelect(int idx) {
   if (_menu_context == MENU_MESSAGES) {
-    if (_store.count() == 0) { openMenu(); return; }   // "No messages" -> back to menu
+    if (_store.count() == 0) { openMenu(); return; }
     openMessage(idx);
     return;
   }
-  // MENU_TOP
-  if (idx == 0) {                       // Messages
+  if (idx == 0) {
     openMessages();
-  } else if (idx == 1) {                // Settings -> PIN gate
+  } else if (idx == 1) {
     _pin.begin("Enter PIN", this);
     ui_task.showScreen(&_pin);
-  } else {                              // Back
+  } else {
     ui_task.showScreen(&_home);
   }
 }
@@ -103,15 +114,15 @@ void ChildMode::onMenuCancel() {
 }
 
 void ChildMode::captureMessage(const char* origin, const char* text, uint32_t ts, bool is_channel,
-                               const uint8_t* sender_prefix, uint8_t channel_idx) {
-  _store.add(origin, text, ts, is_channel, sender_prefix, channel_idx);
+                               const uint8_t* sender_prefix, uint8_t channel_idx, bool is_question) {
+  _store.add(origin, text, ts, is_channel, sender_prefix, channel_idx, is_question);
   ui_task.notify(is_channel ? UIEventType::channelMessage : UIEventType::contactMessage);
   _alert.open(&_store);
-  ui_task.showScreenAwake(&_alert);     // notification, not auto-open
+  ui_task.showScreenAwake(&_alert);
 }
 
 void ChildMode::onReaderBack() {
-  if (_store.count() > 0) openMessages();   // back to the list so the kid can read more
+  if (_store.count() > 0) openMessages();
   else ui_task.showScreen(&_home);
 }
 
@@ -120,14 +131,32 @@ void ChildMode::onAlertOpen() {
 }
 
 void ChildMode::onAlertDismiss() {
-  ui_task.showScreen(&_home);               // messages stay unread; badge shows the count
+  ui_task.showScreen(&_home);
+}
+
+void ChildMode::onQuestionSelect(int opt) {
+  const ChildMessage& m = _store.at(_question_msg_idx);
+  const char* answer = _question.options[opt];
+  bool sent = m.is_channel ? the_mesh.sendChildGroupText(m.channel_idx, answer)
+                           : the_mesh.sendChildText(m.sender, answer);
+  ui_task.showScreen(&_home);
+  if (sent) {
+    _store.markAnswered(_question_msg_idx, (uint8_t)opt);
+    ui_task.showAlert("Sent", 1500);
+  } else {
+    ui_task.showAlert("Send failed", 1500);   // stays pending -> retryable
+  }
+}
+
+void ChildMode::onQuestionCancel() {
+  ui_task.showScreen(&_home);   // unanswered question stays pending (nag preserved)
 }
 
 void ChildMode::onPinEntered(uint32_t pin) {
   if (pin == _cfg.pin) {
-    ui_task.showScreen(ui_task.getFullHomeScreen());   // unlock full UI for session
+    ui_task.showScreen(ui_task.getFullHomeScreen());
   } else {
-    ui_task.showScreen(&_home);                        // wrong -> back to child home
+    ui_task.showScreen(&_home);
   }
 }
 
@@ -139,26 +168,27 @@ static_assert(ADV_TYPE_NONE == 0, "childSenderApproved assumes ADV_TYPE_NONE == 
 
 bool ChildMode::onIncomingText(const ContactInfo& from, uint8_t txt_type,
                                uint32_t sender_timestamp, const char* text) {
-  // CHILD_MODE: only pre-approved contacts may message or command the child.
   if (!childSenderApproved(from.type)) return true;   // drop strangers
 
   PinChange pc;
   if (parseChildCommand(text, pc) == CHILD_CMD_PIN_CHANGE) {
     if (pc.old_pin == _cfg.pin) { _cfg.pin = pc.new_pin; save(); }
-    return true;   // consume the command
-  }
-
-  // Capture approved displayable DMs into the child store, then suppress normal handling.
-  if (txt_type == TXT_TYPE_PLAIN || txt_type == TXT_TYPE_SIGNED_PLAIN) {
-    captureMessage(from.name, text, sender_timestamp, false, from.id.pub_key, 0xFF);
     return true;
   }
-  return false;   // e.g. CLI_DATA -> let normal firmware path handle it
+
+  if (txt_type == TXT_TYPE_PLAIN || txt_type == TXT_TYPE_SIGNED_PLAIN) {
+    ChildQuestion q;
+    bool is_q = parseChildQuestion(text, q);
+    captureMessage(from.name, text, sender_timestamp, false, from.id.pub_key, 0xFF, is_q);
+    return true;
+  }
+  return false;
 }
 
 bool ChildMode::onIncomingChannel(uint8_t channel_idx, const char* channel_name,
                                   uint32_t timestamp, const char* text) {
-  // Group membership == approved (parent controls the channel). Capture + suppress.
-  captureMessage(channel_name, text, timestamp, true, nullptr, channel_idx);
+  ChildQuestion q;
+  bool is_q = parseChildQuestion(text, q);
+  captureMessage(channel_name, text, timestamp, true, nullptr, channel_idx, is_q);
   return true;
 }
