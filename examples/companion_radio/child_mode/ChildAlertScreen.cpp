@@ -28,6 +28,7 @@ bool ChildAlertScreen::handleInput(char c) {
   switch ((unsigned char)c) {
     case KEY_ENTER:
     case KEY_SELECT:
+    case KEY_RIGHT:
       _owner->onAlertOpen();
       return true;
     case KEY_CANCEL:

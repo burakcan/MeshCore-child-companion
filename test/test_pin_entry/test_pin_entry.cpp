@@ -8,9 +8,9 @@ struct PinRecorder : public PinHandler {
   void onPinCancel() override { cancels++; }
 };
 
-// Helper: set the active digit to `d` by incrementing from 0.
+// Helper: set the active digit to `d` (up = +1) and advance with ENTER.
 static void setDigit(PinEntryScreen& s, int d) {
-  for (int i = 0; i < d; i++) s.handleInput(KEY_RIGHT);
+  for (int i = 0; i < d; i++) s.handleInput(KEY_UP);
   s.handleInput(KEY_ENTER);
 }
 
@@ -20,17 +20,31 @@ TEST(PinEntryScreen, EntersFourDigitPin) {
   EXPECT_EQ(r.got, 1234u);
 }
 
-TEST(PinEntryScreen, LeftWrapsDigitDownTo9) {
+TEST(PinEntryScreen, DownWrapsDigitTo9) {
   PinRecorder r; PinEntryScreen s; s.begin("Enter PIN", &r);
-  s.handleInput(KEY_LEFT);   // 0 -> 9
+  s.handleInput(KEY_DOWN);   // 0 -> 9 (down = decrement)
   s.handleInput(KEY_ENTER);
   setDigit(s, 0); setDigit(s, 0); setDigit(s, 0);
   EXPECT_EQ(r.got, 9000u);
 }
 
+TEST(PinEntryScreen, RightAdvancesLikeEnter) {
+  PinRecorder r; PinEntryScreen s; s.begin("Enter PIN", &r);
+  for (int i = 0; i < 5; i++) s.handleInput(KEY_UP);   // digit 0 = 5
+  s.handleInput(KEY_RIGHT);                            // advance (RIGHT = advance)
+  setDigit(s, 0); setDigit(s, 0); setDigit(s, 0);
+  EXPECT_EQ(r.got, 5000u);
+}
+
 TEST(PinEntryScreen, CancelInvokesHandler) {
   PinRecorder r; PinEntryScreen s; s.begin("Enter PIN", &r);
   s.handleInput(KEY_CANCEL);
+  EXPECT_EQ(r.cancels, 1);
+}
+
+TEST(PinEntryScreen, LeftCancels) {
+  PinRecorder r; PinEntryScreen s; s.begin("Enter PIN", &r);
+  s.handleInput(KEY_LEFT);   // LEFT = cancel
   EXPECT_EQ(r.cancels, 1);
 }
 

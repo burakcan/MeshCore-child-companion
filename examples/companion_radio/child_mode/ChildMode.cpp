@@ -1,5 +1,6 @@
 #include "ChildMode.h"
 #include <helpers/child/ChildCommands.h>
+#include <helpers/child/ChildPresetCommand.h>
 #include "../MyMesh.h"        // the_mesh
 #include "../ui-new/UITask.h" // ui_task (extern), UITask API
 #include <target.h>           // rtc_clock
@@ -18,10 +19,19 @@ static const uint8_t CHILD_KEY[7] = {'c','h','i','l','d',0,0};
 // nRF52 DataStore::putBlobByKey rejects blobs shorter than PUB_KEY_SIZE+4+SIGNATURE_SIZE
 static const int CHILD_BLOB_LEN = PUB_KEY_SIZE + 4 + SIGNATURE_SIZE;
 
-// Top menu items
-static const char* const MENU_ITEMS[] = { "Messages", "Settings", "Back" };
-static const int MENU_COUNT = 3;
+// per-slot preset blob key: "chpre" + slot index (7 bytes). distinct from CHILD_KEY.
+static void childPresetKey(uint8_t slot, uint8_t key[7]) {
+  key[0] = 'c'; key[1] = 'h'; key[2] = 'p'; key[3] = 'r'; key[4] = 'e';
+  key[5] = slot; key[6] = 0;
+}
+// DataStore rejects blobs < 100 bytes; pad each preset record to the minimum.
+static const int CHILD_PRESET_SAVE_LEN = PUB_KEY_SIZE + 4 + SIGNATURE_SIZE;  // 100
+
+static const char* const MENU_ITEMS[] = { "Messages", "Send", "Settings", "Back" };
+static const int MENU_COUNT = 4;
 static const char* const NO_MSG_ITEMS[] = { "No messages" };
+static const char* const NO_PRESET_ITEMS[] = { "No presets" };
+static const char* const NO_RECIP_ITEMS[]  = { "No recipients" };
 
 ChildMode child_mode;         // single global instance
 
@@ -45,8 +55,35 @@ void ChildMode::save() {
   the_mesh.childPutBlob(CHILD_KEY, sizeof(CHILD_KEY), buf, CHILD_BLOB_LEN);
 }
 
+void ChildMode::loadPresets() {
+  uint8_t buf[CHILD_PRESET_SAVE_LEN];
+  uint8_t key[7];
+  bool any = false;
+  for (int i = 0; i < CHILD_PRESET_SLOTS; i++) {
+    childPresetKey((uint8_t)i, key);
+    int n = the_mesh.childGetBlob(key, sizeof(key), buf);
+    if (n > 0) { any = true; _presets.unpackSlot(i, buf, n); }
+  }
+  if (!any) {                       // fresh device: seed + persist defaults
+    _presets.initDefaults();
+    for (int i = 0; i < CHILD_PRESET_SLOTS; i++) {
+      if (!_presets.isEmpty(i)) savePreset(i);
+    }
+  }
+}
+
+void ChildMode::savePreset(int slot0) {
+  uint8_t buf[CHILD_PRESET_SAVE_LEN];
+  uint8_t key[7];
+  memset(buf, 0, sizeof(buf));
+  _presets.packSlot(slot0, buf);    // rest stays zero-padded to the 100-byte min
+  childPresetKey((uint8_t)slot0, key);
+  the_mesh.childPutBlob(key, sizeof(key), buf, CHILD_PRESET_SAVE_LEN);
+}
+
 void ChildMode::begin() {
   loadOrSeed();
+  loadPresets();
   ui_task.setInitialScreen(&_home);
 }
 
@@ -62,6 +99,58 @@ void ChildMode::openMessages() {
     _menu.set("Messages", NO_MSG_ITEMS, 1, this);
   } else {
     _menu.set("Messages", _store.labelPtrs(), _store.count(), this);
+  }
+  ui_task.showScreen(&_menu);
+}
+
+void ChildMode::openSend() {
+  _menu_context = MENU_SEND_PRESET;
+  const char* const* items = _presets.labelPtrs();   // rebuilds labelCount()
+  if (_presets.labelCount() == 0) _menu.set("Send", NO_PRESET_ITEMS, 1, this);
+  else                            _menu.set("Send", items, _presets.labelCount(), this);
+  ui_task.showScreen(&_menu);
+}
+
+void ChildMode::buildRecipients() {
+  _recip_count = 0;
+  // group channels first (capped at CHILD_MAX_CHANNELS)
+  int nch = 0;
+  for (int ci = 0; ci < MAX_GROUP_CHANNELS && nch < CHILD_MAX_CHANNELS
+                   && _recip_count < CHILD_MAX_RECIPIENTS; ci++) {
+    ChannelDetails ch;
+    if (the_mesh.getChannel(ci, ch) && ch.name[0]) {
+      _recips[_recip_count].is_channel = true;
+      _recips[_recip_count].channel_idx = (uint8_t)ci;
+      strncpy(_recip_labels[_recip_count], ch.name, 31);
+      _recip_labels[_recip_count][31] = 0;
+      _recip_count++;
+      nch++;
+    }
+  }
+  // then contacts, in existing sort order
+  int nc = the_mesh.getNumContacts();
+  for (int i = 0; i < nc && _recip_count < CHILD_MAX_RECIPIENTS; i++) {
+    ContactInfo c;
+    if (the_mesh.getContactByIdx((uint32_t)i, c)) {
+      _recips[_recip_count].is_channel = false;
+      memcpy(_recips[_recip_count].pubkey, c.id.pub_key, 6);
+      strncpy(_recip_labels[_recip_count], c.name, 31);
+      _recip_labels[_recip_count][31] = 0;
+      _recip_count++;
+    }
+  }
+  if (_recip_count >= CHILD_MAX_RECIPIENTS) {
+    MESH_DEBUG_PRINTLN("child: recipient list capped at %d", CHILD_MAX_RECIPIENTS);
+  }
+  for (int i = 0; i < _recip_count; i++) _recip_label_ptrs[i] = _recip_labels[i];
+}
+
+void ChildMode::openRecipients() {
+  _menu_context = MENU_SEND_RECIPIENT;
+  if (_recip_count == 0) {
+    _menu.set("Send to", NO_RECIP_ITEMS, 1, this);
+  } else {
+    _menu.set("Send to", _recip_label_ptrs, _recip_count, this);
   }
   ui_task.showScreen(&_menu);
 }
@@ -94,6 +183,28 @@ void ChildMode::openMessage(int idx) {
 }
 
 void ChildMode::onMenuSelect(int idx) {
+  // empty preset/recipient/message lists never reach here; open*() divert to a notice
+  if (_menu_context == MENU_SEND_PRESET) {
+    if (_presets.labelCount() == 0) { openMenu(); return; }   // "No presets" -> back to menu
+    _send_slot = _presets.slotForRow(idx);
+    buildRecipients();
+    openRecipients();
+    return;
+  }
+  if (_menu_context == MENU_SEND_RECIPIENT) {
+    if (_recip_count == 0) { ui_task.showScreen(&_home); return; }  // "No recipients"
+    const ChildRecipient& r = _recips[idx];
+    const char* txt = _presets.text(_send_slot);
+    bool ok = r.is_channel ? the_mesh.sendChildGroupText(r.channel_idx, txt)
+                           : the_mesh.sendChildText(r.pubkey, txt);
+    if (ok) {
+      ui_task.showScreen(&_home);
+      ui_task.showAlert("Sent", 1500);
+    } else {
+      ui_task.showAlert("Send failed", 1500);   // stays on recipient list -> retryable
+    }
+    return;
+  }
   if (_menu_context == MENU_MESSAGES) {
     if (_store.count() == 0) { openMenu(); return; }
     openMessage(idx);
@@ -102,6 +213,8 @@ void ChildMode::onMenuSelect(int idx) {
   if (idx == 0) {
     openMessages();
   } else if (idx == 1) {
+    openSend();
+  } else if (idx == 2) {
     _pin.begin("Enter PIN", this);
     ui_task.showScreen(&_pin);
   } else {
@@ -110,7 +223,9 @@ void ChildMode::onMenuSelect(int idx) {
 }
 
 void ChildMode::onMenuCancel() {
-  ui_task.showScreen(&_home);
+  if (_menu_context == MENU_SEND_RECIPIENT) { openSend(); return; }  // -> preset list
+  if (_menu_context == MENU_SEND_PRESET)    { openMenu(); return; }  // -> top menu
+  ui_task.showScreen(&_home);   // MENU_TOP / MENU_MESSAGES -> home
 }
 
 void ChildMode::captureMessage(const char* origin, const char* text, uint32_t ts, bool is_channel,
@@ -174,6 +289,13 @@ bool ChildMode::onIncomingText(const ContactInfo& from, uint8_t txt_type,
   if (parseChildCommand(text, pc) == CHILD_CMD_PIN_CHANGE) {
     if (pc.old_pin == _cfg.pin) { _cfg.pin = pc.new_pin; save(); }
     return true;
+  }
+
+  int pslot; char ptext[CHILD_PRESET_TEXTLEN];
+  if (parsePresetCommand(text, pslot, ptext, sizeof(ptext))) {
+    _presets.set(pslot - 1, ptext[0] ? ptext : nullptr);   // empty => clear
+    savePreset(pslot - 1);
+    return true;                                            // silent, like !pin
   }
 
   if (txt_type == TXT_TYPE_PLAIN || txt_type == TXT_TYPE_SIGNED_PLAIN) {

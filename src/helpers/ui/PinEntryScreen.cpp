@@ -36,15 +36,14 @@ int PinEntryScreen::render(DisplayDriver& display) {
 
 bool PinEntryScreen::handleInput(char c) {
   switch ((unsigned char)c) {
-    case KEY_LEFT:
-    case KEY_UP:
-      _digits[_pos] = (_digits[_pos] + 9) % 10;
-      return true;
-    case KEY_RIGHT:
-    case KEY_DOWN:
+    case KEY_UP:                                  // +1
       _digits[_pos] = (_digits[_pos] + 1) % 10;
       return true;
+    case KEY_DOWN:                                // -1
+      _digits[_pos] = (_digits[_pos] + 9) % 10;
+      return true;
     case KEY_ENTER:
+    case KEY_RIGHT:                               // advance / confirm
       _pos++;
       if (_pos >= NUM_DIGITS) {
         uint32_t pin = 0;
@@ -56,6 +55,7 @@ bool PinEntryScreen::handleInput(char c) {
       return true;
     case KEY_SELECT:
     case KEY_CANCEL:
+    case KEY_LEFT:                                // back
       resetDigits();
       if (_handler) _handler->onPinCancel();
       return true;

@@ -5,10 +5,14 @@
 #include <helpers/child/ChildConfig.h>
 #include <helpers/child/ChildMessageStore.h>
 #include <helpers/child/ChildQuestion.h>
+#include <helpers/child/ChildPresets.h>
 #include "ChildHomeScreen.h"
 #include "ChildMessageScreen.h"
 #include "ChildAlertScreen.h"
 #include "ChildQuestionScreen.h"
+
+#define CHILD_MAX_CHANNELS    8     // family groups shown first in the picker
+#define CHILD_MAX_RECIPIENTS  24    // flat cap (NOT MAX_CONTACTS, which is 350 here)
 
 namespace mesh { struct Identity; }
 struct ContactInfo;
@@ -16,6 +20,7 @@ struct ContactInfo;
 class ChildMode : public MenuHandler, public PinHandler, public ReaderHandler,
                   public AlertHandler, public QuestionHandler {
   ChildConfig _cfg;
+  ChildPresets _presets;
   ChildHomeScreen _home;
   ListMenuScreen _menu;
   PinEntryScreen _pin;
@@ -25,15 +30,30 @@ class ChildMode : public MenuHandler, public PinHandler, public ReaderHandler,
   ChildQuestionScreen _question_screen;
   ChildQuestion _question;            // parsed view of the currently-open question
   int _question_msg_idx;
-  enum MenuContext { MENU_TOP, MENU_MESSAGES };
+  enum MenuContext { MENU_TOP, MENU_MESSAGES, MENU_SEND_PRESET, MENU_SEND_RECIPIENT };
   MenuContext _menu_context;
+  struct ChildRecipient {
+    bool    is_channel;
+    uint8_t channel_idx;     // valid when is_channel
+    uint8_t pubkey[6];       // valid when !is_channel
+  };
+  ChildRecipient _recips[CHILD_MAX_RECIPIENTS];
+  char           _recip_labels[CHILD_MAX_RECIPIENTS][32];
+  const char*    _recip_label_ptrs[CHILD_MAX_RECIPIENTS];
+  int            _recip_count;
+  int            _send_slot;       // chosen preset slot (0-indexed)
   void loadOrSeed();
   void save();
+  void loadPresets();
+  void savePreset(int slot0);
   void captureMessage(const char* origin, const char* text, uint32_t ts, bool is_channel,
                       const uint8_t* sender_prefix, uint8_t channel_idx, bool is_question);
   int  newestUnreadIndex() const;
   void openMessage(int idx);
   void openQuestion(int idx);
+  void openSend();
+  void buildRecipients();
+  void openRecipients();
 public:
   ChildMode();
   void begin();

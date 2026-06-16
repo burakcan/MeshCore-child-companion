@@ -70,7 +70,8 @@ bool ChildQuestionScreen::handleInput(char c) {
       return true;
     case KEY_ENTER:
     case KEY_SELECT:
-      if (_answered_idx >= 0) _owner->onQuestionCancel();          // locked view -> exit
+    case KEY_RIGHT:
+      if (_answered_idx >= 0) _owner->onQuestionCancel();          // locked -> exit
       else                    _owner->onQuestionSelect(_model.selected());
       return true;
     case KEY_CANCEL:

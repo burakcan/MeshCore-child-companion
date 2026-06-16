@@ -758,10 +758,31 @@ void UITask::loop() {
   } else if (ev == BUTTON_EVENT_LONG_PRESS) {
     c = handleLongPress(KEY_RIGHT);
   }
+#ifdef UI_HAS_JOYSTICK_UPDOWN
+  // opt-in: 4-way joystick up/down -> KEY_UP / KEY_DOWN (requires joystick_up /
+  // joystick_down buttons to be defined by the variant/target)
+  ev = joystick_up.check();
+  if (ev == BUTTON_EVENT_CLICK) {
+    c = checkDisplayOn(KEY_UP);
+  } else if (ev == BUTTON_EVENT_LONG_PRESS) {
+    c = handleLongPress(KEY_UP);
+  }
+  ev = joystick_down.check();
+  if (ev == BUTTON_EVENT_CLICK) {
+    c = checkDisplayOn(KEY_DOWN);
+  } else if (ev == BUTTON_EVENT_LONG_PRESS) {
+    c = handleLongPress(KEY_DOWN);
+  }
+#endif
   ev = back_btn.check();
   if (ev == BUTTON_EVENT_TRIPLE_CLICK) {
     c = handleTripleClick(KEY_SELECT);
   }
+#ifdef CHILD_MODE
+  else if (ev == BUTTON_EVENT_CLICK) {
+    c = checkDisplayOn(KEY_CANCEL);   // CHILD_MODE seam: Menu button = back/cancel
+  }
+#endif
 #elif defined(PIN_USER_BTN)
   int ev = user_btn.check();
   if (ev == BUTTON_EVENT_CLICK) {

@@ -38,7 +38,7 @@ int ChildHomeScreen::render(DisplayDriver& display) {
 }
 
 bool ChildHomeScreen::handleInput(char c) {
-  if (c == KEY_ENTER || c == KEY_SELECT) {
+  if (c == KEY_ENTER || c == KEY_SELECT || c == KEY_RIGHT) {
     _owner->openMenu();
     return true;
   }

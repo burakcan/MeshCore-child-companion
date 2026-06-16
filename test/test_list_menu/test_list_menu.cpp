@@ -17,18 +17,30 @@ TEST(ListMenuScreen, RendersTitleAndItems) {
   EXPECT_TRUE(d.printed("Alpha"));
 }
 
-TEST(ListMenuScreen, EnterSelectsCurrent) {
+TEST(ListMenuScreen, DownThenEnterSelects) {
   RecordHandler h; ListMenuScreen s; s.set("Menu", ITEMS, 3, &h);
-  s.handleInput(KEY_RIGHT);   // move to Beta
+  s.handleInput(KEY_DOWN);    // move to Beta
   s.handleInput(KEY_ENTER);
   EXPECT_EQ(h.last_select, 1);
 }
 
-TEST(ListMenuScreen, LeftRightNavigateWithWrap) {
+TEST(ListMenuScreen, UpWrapsToLast) {
   RecordHandler h; ListMenuScreen s; s.set("Menu", ITEMS, 3, &h);
-  s.handleInput(KEY_LEFT);    // wrap to Gamma
+  s.handleInput(KEY_UP);      // wrap to Gamma
   s.handleInput(KEY_ENTER);
   EXPECT_EQ(h.last_select, 2);
+}
+
+TEST(ListMenuScreen, RightSelectsCurrent) {
+  RecordHandler h; ListMenuScreen s; s.set("Menu", ITEMS, 3, &h);
+  s.handleInput(KEY_RIGHT);   // RIGHT = select (current = Alpha)
+  EXPECT_EQ(h.last_select, 0);
+}
+
+TEST(ListMenuScreen, LeftCancels) {
+  RecordHandler h; ListMenuScreen s; s.set("Menu", ITEMS, 3, &h);
+  s.handleInput(KEY_LEFT);    // LEFT = back/cancel
+  EXPECT_EQ(h.cancels, 1);
 }
 
 TEST(ListMenuScreen, CancelKeyCancels) {
