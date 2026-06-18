@@ -14,6 +14,7 @@ class HostDisplay : public DisplayDriver {
   int _tsize;                // text size multiplier
   uint8_t _color;            // 1 = lit, 0 = dark
   bool _on;
+  bool _silent = false;      // when true, endFrame() does nothing (SDL presents instead)
   const char* _status;       // optional status line under the frame
 
   void setPixel(int x, int y, uint8_t v);
@@ -23,6 +24,8 @@ public:
   HostDisplay();
 
   void setStatusLine(const char* s) { _status = s; }
+  void setSilent(bool s) { _silent = s; }            // SDL mode: skip terminal output
+  const uint8_t* framebuffer() const { return _fb.data(); }   // for the SDL backend
 
   // DisplayDriver interface
   bool isOn() override { return _on; }

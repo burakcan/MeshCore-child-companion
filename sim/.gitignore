@@ -1,0 +1,11 @@
+# Build outputs
+meshsim
+meshnode
+meshnode-*
+*.dSYM/
+*.o
+
+# Runtime state (created when the sims run)
+child_cfg.bin
+fsroot/
+vendor/

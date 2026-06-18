@@ -4,7 +4,7 @@
 set -e
 cd "$(dirname "$0")/.."   # repo root
 
-clang++ -std=c++17 -O0 -g -Wall -Wextra \
+clang++ -std=c++17 -O0 -g -funsigned-char -Wall -Wextra \
   -I src \
   -I examples/companion_radio/child_mode \
   sim/host_display.cpp \

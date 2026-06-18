@@ -3,6 +3,16 @@
 #include <cstring>
 #include <string>
 #include <algorithm>
+#include <csignal>
+#include <cstdlib>
+#include <sys/ioctl.h>
+#include <unistd.h>
+
+// Terminal resize handling: a SIGWINCH marks that we must fully clear before the
+// next frame (otherwise the in-place overdraw misaligns and garbles).
+static volatile sig_atomic_t g_winch = 1;   // start true -> clear on first frame
+static void onWinch(int) { g_winch = 1; }
+static bool g_winch_installed = false;
 
 // Vendored copy of Adafruit_GFX's classic 5x7 font ("font[]"), so on-screen
 // text matches the device pixel-for-pixel (advance = 6px * size).
@@ -79,42 +89,95 @@ void HostDisplay::drawRect(int x, int y, int w, int h) {
   for (int yy = y; yy < y + h; yy++) { setPixel(x, yy, _color); setPixel(x + w - 1, yy, _color); }
 }
 
-// XBM: LSB-first within each byte, rows padded to whole bytes.
+// The device's DisplayDriver::drawXbm maps to Adafruit_GFX drawBitmap, which is
+// MSB-first (bit 0x80 = leftmost pixel), NOT XBM's LSB-first. Match that or the
+// logo/icons come out byte-mirrored (garbled). Rows padded to whole bytes.
 void HostDisplay::drawXbm(int x, int y, const uint8_t* bits, int w, int h) {
   int row_bytes = (w + 7) / 8;
   for (int j = 0; j < h; j++) {
     for (int i = 0; i < w; i++) {
       uint8_t byte = bits[j * row_bytes + (i / 8)];
-      if (byte & (1 << (i & 7))) setPixel(x + i, y + j, _color);
+      if (byte & (0x80 >> (i & 7))) setPixel(x + i, y + j, _color);  // MSB-first
     }
   }
 }
 
 // Render the framebuffer to the terminal. Each character cell covers two
 // vertical pixels using Unicode half-block glyphs, so 128x64 -> 128x32 chars.
+// 2x2-pixel quadrant glyphs, indexed by bits: TL|TR<<1|BL<<2|BR<<3.
+static const char* QUAD[16] = {
+  " ", "▘", "▝", "▀", "▖", "▌", "▞", "▛",
+  "▗", "▚", "▐", "▜", "▄", "▙", "▟", "█"
+};
+
 void HostDisplay::endFrame() {
+  if (_silent) return;   // SDL mode presents the framebuffer directly; no terminal output
+  if (!g_winch_installed) { signal(SIGWINCH, onWinch); g_winch_installed = true; }
+
+  struct winsize ws{};
+  int cols = (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_col > 0) ? ws.ws_col : 200;
+
+  // SIM_DISPLAY=half|quad forces a renderer; default auto-fits to the pane width.
+  static int forced = -2;   // -2 uninit, -1 auto, 1 half, 2 quad
+  if (forced == -2) {
+    const char* m = getenv("SIM_DISPLAY");
+    forced = (m && !strcmp(m, "half")) ? 1 : (m && !strcmp(m, "quad")) ? 2 : -1;
+  }
+
+  // Pick the densest renderer that fits: 1 char/px (best aspect, needs W+2 cols),
+  // else 2 px/char quadrants (half the width), else a message.
+  int cw;                       // chars used per pixel-column (1 = half-block, 2px wide cell = quadrant)
+  if (forced == 2)            cw = (cols >= W / 2 + 2) ? 2 : 0;
+  else if (forced == 1)       cw = (cols >= W + 2) ? 1 : 0;
+  else if (cols >= W + 2)      cw = 1;
+  else if (cols >= W / 2 + 2) cw = 2;
+  else                   cw = 0;
+  int fw = (cw == 1) ? W : W / 2;   // frame inner width in chars
+
   std::string out;
-  out.reserve(W * (H / 2) * 4 + 256);
-  out += "\x1b[H";                     // cursor home (overdraw in place)
-  out += "+";                          // top border
-  for (int x = 0; x < W; x++) out += "-";
-  out += "+\n";
+  out.reserve(fw * (H / 2) * 4 + 256);
+  if (g_winch) { out += "\x1b[2J"; g_winch = 0; }   // resize -> full clear once
+  out += "\x1b[H";
+
+  if (cw == 0) {
+    char msg[160];
+    snprintf(msg, sizeof(msg), "[ pane too narrow: need >= %d cols, have %d — widen it ]", W / 2 + 2, cols);
+    out += msg; out += "\x1b[K\n\x1b[J";
+    fputs(out.c_str(), stdout); fflush(stdout);
+    return;
+  }
+
+  out += "+";
+  for (int x = 0; x < fw; x++) out += "-";
+  out += "+\x1b[K\n";
   for (int y = 0; y < H; y += 2) {
     out += "|";
-    for (int x = 0; x < W; x++) {
-      bool top = _fb[y * W + x] != 0;
-      bool bot = (y + 1 < H) && _fb[(y + 1) * W + x] != 0;
-      if (top && bot)      out += "█"; // full block
-      else if (top)        out += "▀"; // upper half
-      else if (bot)        out += "▄"; // lower half
-      else                 out += " ";
+    if (cw == 1) {                                  // half-block: 1 px wide per char
+      for (int x = 0; x < W; x++) {
+        bool top = _fb[y * W + x] != 0;
+        bool bot = (y + 1 < H) && _fb[(y + 1) * W + x] != 0;
+        out += (top && bot) ? "█" : top ? "▀" : bot ? "▄" : " ";
+      }
+    } else {                                        // quadrant: 2x2 px per char
+      for (int x = 0; x < W; x += 2) {
+        int idx = (_fb[y * W + x] != 0)
+                | ((_fb[y * W + x + 1] != 0) << 1)
+                | ((_fb[(y + 1) * W + x] != 0) << 2)
+                | ((_fb[(y + 1) * W + x + 1] != 0) << 3);
+        out += QUAD[idx];
+      }
     }
-    out += "|\n";
+    out += "|\x1b[K\n";
   }
   out += "+";
-  for (int x = 0; x < W; x++) out += "-";
-  out += "+\n";
-  if (_status) { out += _status; out += "\x1b[K\n"; }
+  for (int x = 0; x < fw; x++) out += "-";
+  out += "+\x1b[K\n";
+  if (_status) {
+    std::string s(_status);
+    if ((int)s.size() > cols) s.resize(cols);        // don't let the help line wrap
+    out += s; out += "\x1b[K\n";
+  }
+  out += "\x1b[J";
   fputs(out.c_str(), stdout);
   fflush(stdout);
 }
