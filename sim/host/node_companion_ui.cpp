@@ -102,13 +102,37 @@ static bool pollKeyTerminal() {
 
 #ifdef USE_SDL
 static bool g_sdl = false;
+// SDL gives real key down/up, so we hold the button pin for the actual hold
+// duration: a tap = click, a hold (>1s) = long-press, just like the hardware.
+static uint32_t pinForKey(int id) {
+  switch (id) {
+    case SK_PRESS: return PIN_USER_BTN;
+#if defined(UI_HAS_JOYSTICK)
+    case SK_LEFT:  return JOYSTICK_LEFT;
+    case SK_RIGHT: return JOYSTICK_RIGHT;
+    case SK_BACK:  return PIN_BACK_BTN;
+#if defined(UI_HAS_JOYSTICK_UPDOWN)
+    case SK_UP:    return JOYSTICK_UP;
+    case SK_DOWN:  return JOYSTICK_DOWN;
+#else
+    case SK_UP:    return JOYSTICK_LEFT;
+    case SK_DOWN:  return JOYSTICK_RIGHT;
+#endif
+#endif
+    default: return 0xFFFFFFFFu;   // not mapped on this device
+  }
+}
 static bool pollKeySdl() {
   sdlPumpEvents();
   if (sdlQuitRequested()) return false;
-  int c;
-  while ((c = sdlReadByte()) >= 0) {
-    if (c == 0x1b) { int a = sdlReadByte(), b = sdlReadByte(); if (a == '[' && b >= 0) applyArrow((char)b); }
-    else if (!applyKey((unsigned char)c)) return false;
+  int id; bool down;
+  while (sdlNextKey(&id, &down)) {
+    if (id == SK_QUIT) return false;
+    uint32_t pin = pinForKey(id);
+    if (pin != 0xFFFFFFFFu) {
+      if (down) hostHoldPin(pin);
+      else hostPressPin(pin, 40);   // keep pressed ~40ms after release so a fast tap still registers
+    }
   }
   return true;
 }

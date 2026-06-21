@@ -8,10 +8,21 @@ static SDL_Renderer* s_ren = nullptr;
 static SDL_Texture*  s_tex = nullptr;
 static int s_w = 0, s_h = 0;
 static bool s_quit = false;
-static std::deque<int> s_keys;
 
-static void push(int b) { s_keys.push_back(b); }
-static void pushArrow(char dir) { push(0x1b); push('['); push(dir); }   // ESC [ A/B/C/D
+struct KeyEv { int id; bool down; };
+static std::deque<KeyEv> s_evs;
+
+static int symToId(int sym) {
+  switch (sym) {
+    case SDLK_RETURN: case SDLK_KP_ENTER: case SDLK_l: return SK_PRESS;
+    case SDLK_LEFT:  case SDLK_a: return SK_LEFT;
+    case SDLK_RIGHT: case SDLK_d: return SK_RIGHT;
+    case SDLK_UP:    return SK_UP;
+    case SDLK_DOWN:  return SK_DOWN;
+    case SDLK_b:     return SK_BACK;
+    default:         return SK_NONE;
+  }
+}
 
 bool sdlBegin(const char* title, int w, int h, int scale) {
   if (SDL_Init(SDL_INIT_VIDEO) != 0) { fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError()); return false; }
@@ -46,25 +57,25 @@ void sdlPumpEvents() {
   SDL_Event e;
   while (SDL_PollEvent(&e)) {
     if (e.type == SDL_QUIT) { s_quit = true; continue; }
-    if (e.type != SDL_KEYDOWN) continue;
-    switch (e.key.keysym.sym) {
-      case SDLK_RETURN: case SDLK_KP_ENTER: push('\r'); break;
-      case SDLK_LEFT:  pushArrow('D'); break;   // ESC [ D
-      case SDLK_RIGHT: pushArrow('C'); break;
-      case SDLK_UP:    pushArrow('A'); break;
-      case SDLK_DOWN:  pushArrow('B'); break;
-      case SDLK_a: push('a'); break;
-      case SDLK_d: push('d'); break;
-      case SDLK_b: push('b'); break;
-      case SDLK_l: push('l'); break;
-      case SDLK_q: push('q'); break;
-      case SDLK_ESCAPE: s_quit = true; break;
-      default: break;
+    if (e.type == SDL_KEYDOWN) {
+      int sym = e.key.keysym.sym;
+      if (sym == SDLK_q || sym == SDLK_ESCAPE) { s_quit = true; continue; }
+      if (e.key.repeat) continue;                  // ignore OS key-repeat; a hold is one down + one up
+      int id = symToId(sym);
+      if (id != SK_NONE) s_evs.push_back({ id, true });
+    } else if (e.type == SDL_KEYUP) {
+      int id = symToId(e.key.keysym.sym);
+      if (id != SK_NONE) s_evs.push_back({ id, false });
     }
   }
 }
 
-int  sdlReadByte() { if (s_keys.empty()) return -1; int b = s_keys.front(); s_keys.pop_front(); return b; }
+bool sdlNextKey(int* id, bool* down) {
+  if (s_evs.empty()) return false;
+  KeyEv ev = s_evs.front(); s_evs.pop_front();
+  *id = ev.id; *down = ev.down;
+  return true;
+}
 bool sdlQuitRequested() { return s_quit; }
 
 void sdlEnd() {

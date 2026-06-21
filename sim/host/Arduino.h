@@ -75,6 +75,8 @@ void yield();
 
 // host simulator: drive a button pin LOW (pressed) for dur_ms (keyboard bridge)
 void hostPressPin(uint32_t pin, unsigned long dur_ms = 90);
+void hostHoldPin(uint32_t pin);     // press-and-hold until released (key-down)
+void hostReleasePin(uint32_t pin);  // release a held button (key-up)
 
 template <typename T> T abs_(T v) { return v < 0 ? -v : v; }
 

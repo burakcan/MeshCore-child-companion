@@ -30,6 +30,9 @@ static unsigned long s_pin_release[64] = {0};
 void hostPressPin(uint32_t pin, unsigned long dur_ms) {
   if (pin < 64) s_pin_release[pin] = millis() + dur_ms;
 }
+// Hold a button down until released (lets a real key-hold become a long-press).
+void hostHoldPin(uint32_t pin)    { if (pin < 64) s_pin_release[pin] = millis() + 3600000UL; }
+void hostReleasePin(uint32_t pin) { if (pin < 64) s_pin_release[pin] = 0; }
 
 void pinMode(uint32_t, uint8_t) {}
 void digitalWrite(uint32_t, uint8_t) {}
