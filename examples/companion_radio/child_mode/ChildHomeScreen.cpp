@@ -1,6 +1,8 @@
 #include "ChildHomeScreen.h"
 #include "ChildMode.h"
 #include <helpers/ui/StatusHeader.h>
+#include <helpers/ui/UiIcons.h>
+#include <helpers/ui/UiFooter.h>
 #include <helpers/ui/BatteryUtils.h>
 #include <target.h>            // rtc_clock, board globals
 #include "../MyMesh.h"          // the_mesh, NodePrefs
@@ -10,30 +12,41 @@ int ChildHomeScreen::render(DisplayDriver& display) {
   NodePrefs* prefs = the_mesh.getNodePrefs();
   const char* name = prefs ? prefs->node_name : "Mesh";
 
-  char timebuf[6] = "";
-  uint32_t now = rtc_clock.getCurrentTime();
-  uint32_t mins = (now / 60) % 60;
-  uint32_t hrs  = (now / 3600) % 24;
-  snprintf(timebuf, sizeof(timebuf), "%02u:%02u", (unsigned)hrs, (unsigned)mins);
-
   int pct = batteryPercent(board.getBattMilliVolts());
-  StatusHeader::draw(display, name, timebuf, pct, true);
+  // header carries the small name + battery; the time now lives big in the center
+  StatusHeader::draw(display, name, "", pct, true);
+
+  // big clock; "--:--" until the parent sets the time (don't show a wrong clock)
+  uint32_t now = rtc_clock.getCurrentTime();
+  char clock[6];
+  if (now > 946684800u) {   // RTC set (>= year 2000)
+    long local = (long)now + (long)_owner->tzOffsetMin() * 60;   // OTA-set tz offset
+    if (local < 0) local = 0;
+    snprintf(clock, sizeof(clock), "%02u:%02u",
+             (unsigned)((local / 3600) % 24), (unsigned)((local / 60) % 60));
+  } else {
+    snprintf(clock, sizeof(clock), "--:--");
+  }
+  int unread = _owner->unreadCount();
+  int clock_y = unread > 0 ? 24 : 30;   // up a touch to make room for the unread line
 
   display.setColor(DisplayDriver::LIGHT);
   display.setTextSize(2);
-  display.drawTextCentered(display.width() / 2, 26, name);
+  display.drawTextCentered(display.width() / 2, clock_y, clock);
 
-  int unread = _owner->unreadCount();
+  // unread count under the clock
   if (unread > 0) {
-    char badge[16];
-    snprintf(badge, sizeof(badge), "New: %d", unread);
-    display.setColor(DisplayDriver::LIGHT);
     display.setTextSize(1);
-    display.drawTextCentered(display.width() / 2, 42, badge);
+    int iw, ih; const uint8_t* eb = uiIcon(ICON_ENVELOPE_SM, &iw, &ih);
+    char cnt[16]; snprintf(cnt, sizeof(cnt), "%d new", unread);
+    int tw = display.getTextWidth(cnt);
+    int x = display.width() / 2 - (iw + 3 + tw) / 2;
+    int line_y = clock_y + 20;
+    if (eb) display.drawXbm(x, line_y, eb, iw, ih);
+    display.setCursor(x + iw + 3, line_y + 1);
+    display.print(cnt);
   }
 
-  display.setTextSize(1);
-  display.drawTextCentered(display.width() / 2, 52, "press = menu");
   return 1000;
 }
 

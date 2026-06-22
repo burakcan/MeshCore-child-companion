@@ -1,6 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
+#include <array>
 #include <cstring>
 #include "helpers/ui/DisplayDriver.h"
 
@@ -8,6 +9,7 @@ class FakeDisplayDriver : public DisplayDriver {
   bool _on = true;
 public:
   std::vector<std::string> texts;
+  std::vector<std::array<int,4>> xbms;   // each drawXbm: {x,y,w,h}
   int frames = 0, fills = 0, rects = 0;
   int cursor_x = 0, cursor_y = 0;
 
@@ -17,14 +19,14 @@ public:
   void turnOn() override { _on = true; }
   void turnOff() override { _on = false; }
   void clear() override {}
-  void startFrame(Color bkg = DARK) override { frames++; texts.clear(); fills = 0; rects = 0; }
+  void startFrame(Color bkg = DARK) override { frames++; texts.clear(); xbms.clear(); fills = 0; rects = 0; }
   void setTextSize(int sz) override {}
   void setColor(Color c) override {}
   void setCursor(int x, int y) override { cursor_x = x; cursor_y = y; }
   void print(const char* str) override { texts.push_back(str ? str : ""); }
   void fillRect(int x, int y, int w, int h) override { fills++; }
   void drawRect(int x, int y, int w, int h) override { rects++; }
-  void drawXbm(int x, int y, const uint8_t* bits, int w, int h) override {}
+  void drawXbm(int x, int y, const uint8_t* bits, int w, int h) override { xbms.push_back({x,y,w,h}); }
   uint16_t getTextWidth(const char* str) override { return str ? (uint16_t)(strlen(str) * 6) : 0; }
   void endFrame() override {}
 

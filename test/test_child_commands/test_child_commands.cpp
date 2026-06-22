@@ -38,6 +38,53 @@ TEST(ChildSenderApproved, RealTypesApproved) {
   EXPECT_TRUE(childSenderApproved(4));    // ADV_TYPE_SENSOR
 }
 
+TEST(TzCommand, ParsesPositive) {
+  int m = 999;
+  EXPECT_TRUE(parseTzCommand("!tz 60", &m));
+  EXPECT_EQ(m, 60);
+}
+TEST(TzCommand, ParsesNegative) {
+  int m = 0;
+  EXPECT_TRUE(parseTzCommand("!tz -300", &m));
+  EXPECT_EQ(m, -300);
+}
+TEST(TzCommand, GroupPrefixTolerated) {
+  int m = 0;
+  EXPECT_TRUE(parseTzCommand("Dad: !tz 120", &m));
+  EXPECT_EQ(m, 120);
+}
+TEST(TzCommand, RejectsOutOfRange) {
+  int m = 0;
+  EXPECT_FALSE(parseTzCommand("!tz 9000", &m));
+}
+TEST(TzCommand, RejectsNonTz) {
+  int m = 0;
+  EXPECT_FALSE(parseTzCommand("hello", &m));
+  EXPECT_FALSE(parseTzCommand("!tz", &m));        // no argument
+  EXPECT_FALSE(parseTzCommand("!tz abc", &m));
+}
+
+TEST(NameCommand, ParsesName) {
+  char nm[32] = "";
+  EXPECT_TRUE(parseNameCommand("!name Grandma", nm, sizeof(nm)));
+  EXPECT_STREQ(nm, "Grandma");
+}
+TEST(NameCommand, GroupPrefixTolerated) {
+  char nm[32] = "";
+  EXPECT_TRUE(parseNameCommand("Bob: !name Uncle Bob", nm, sizeof(nm)));
+  EXPECT_STREQ(nm, "Uncle Bob");
+}
+TEST(NameCommand, TrimsTrailingSpaces) {
+  char nm[32] = "";
+  EXPECT_TRUE(parseNameCommand("!name Mia   ", nm, sizeof(nm)));
+  EXPECT_STREQ(nm, "Mia");
+}
+TEST(NameCommand, RejectsEmptyOrNonName) {
+  char nm[32] = "x";
+  EXPECT_FALSE(parseNameCommand("!name ", nm, sizeof(nm)));
+  EXPECT_FALSE(parseNameCommand("hello", nm, sizeof(nm)));
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

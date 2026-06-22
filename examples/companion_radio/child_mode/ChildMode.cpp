@@ -1,6 +1,8 @@
 #include "ChildMode.h"
+#include <helpers/ui/UiIcons.h>
 #include <helpers/child/ChildCommands.h>
 #include <helpers/child/ChildPresetCommand.h>
+#include <helpers/child/ChildBell.h>
 #include "../MyMesh.h"        // the_mesh
 #include "../ui-new/UITask.h" // ui_task (extern), UITask API
 #include <target.h>           // rtc_clock
@@ -12,9 +14,16 @@
 // Read-ack text: "✓ seen" (UTF-8). Compile-time for now; OTA-configurable later.
 #define CHILD_READ_ACK_TEXT "\xE2\x9C\x93 seen"
 
+#ifndef CHILD_BELL_RING_MS
+#define CHILD_BELL_RING_MS 45000      // ring window before auto-silencing (screen persists)
+#endif
+// "👋 here" (UTF-8); sent over radio only, never drawn on the CP437 OLED.
+#define CHILD_BELL_ACK_TEXT "\xF0\x9F\x91\x8B here"
+
 extern UITask ui_task;        // declared in main.cpp
 
 static const uint8_t CHILD_KEY[7] = {'c','h','i','l','d',0,0};
+static const uint8_t CHILD_ALIAS_KEY[7] = {'c','h','a','l','i',0,0};
 
 // nRF52 DataStore::putBlobByKey rejects blobs shorter than PUB_KEY_SIZE+4+SIGNATURE_SIZE
 static const int CHILD_BLOB_LEN = PUB_KEY_SIZE + 4 + SIGNATURE_SIZE;
@@ -29,15 +38,27 @@ static const int CHILD_PRESET_SAVE_LEN = PUB_KEY_SIZE + 4 + SIGNATURE_SIZE;  // 
 
 static const char* const MENU_ITEMS[] = { "Messages", "Send", "Settings", "Back" };
 static const int MENU_COUNT = 4;
-static const char* const NO_MSG_ITEMS[] = { "No messages" };
-static const char* const NO_PRESET_ITEMS[] = { "No presets" };
-static const char* const NO_RECIP_ITEMS[]  = { "No recipients" };
 
 ChildMode child_mode;         // single global instance
 
 ChildMode::ChildMode()
-  : _home(this), _reader(this), _alert(this), _question_screen(this),
-    _question_msg_idx(0), _menu_context(MENU_TOP) {}
+  : _home(this), _reader(this), _alert(this), _question_screen(this), _notice(this),
+    _notice_return(NR_HOME), _question_msg_idx(0), _bell_screen(this), _menu_context(MENU_TOP) {}
+
+void ChildMode::openNotice(int icon, const char* line, uint32_t dismiss_ms, NoticeReturn ret) {
+  _notice_return = ret;
+  _notice.open(icon, line, dismiss_ms);
+  ui_task.showScreenAwake(&_notice);
+}
+
+void ChildMode::onNoticeDone() {
+  switch (_notice_return) {
+    case NR_MENU: openMenu(); break;
+    case NR_SEND: openSend(); break;
+    case NR_HOME:
+    default:      ui_task.showScreen(&_home); break;
+  }
+}
 
 void ChildMode::loadOrSeed() {
   uint8_t buf[CHILD_BLOB_LEN];
@@ -81,33 +102,61 @@ void ChildMode::savePreset(int slot0) {
   the_mesh.childPutBlob(key, sizeof(key), buf, CHILD_PRESET_SAVE_LEN);
 }
 
+void ChildMode::loadAliases() {
+  uint8_t buf[CHILD_ALIAS_SAVE_LEN];
+  int n = the_mesh.childGetBlob(CHILD_ALIAS_KEY, sizeof(CHILD_ALIAS_KEY), buf);
+  if (n > 0) _aliases.unpack(buf, n);
+}
+
+void ChildMode::saveAliases() {
+  uint8_t buf[CHILD_ALIAS_SAVE_LEN];
+  _aliases.pack(buf);
+  the_mesh.childPutBlob(CHILD_ALIAS_KEY, sizeof(CHILD_ALIAS_KEY), buf, CHILD_ALIAS_SAVE_LEN);
+}
+
+const char* ChildMode::aliasRewriteGroupText(const char* text, char* buf, int bufsz) {
+  const char* sep = strstr(text, ": ");          // "<sender>: <body>"
+  if (sep == NULL) return text;
+  int nlen = (int)(sep - text);
+  if (nlen <= 0 || nlen >= CHILD_ALIAS_NAMELEN) return text;
+  char sender[CHILD_ALIAS_NAMELEN];
+  memcpy(sender, text, nlen); sender[nlen] = 0;
+  const char* disp = _aliases.lookup(sender);
+  if (disp == NULL) return text;
+  snprintf(buf, bufsz, "%s%s", disp, sep);       // "<display>: <body>"
+  return buf;
+}
+
 void ChildMode::begin() {
   loadOrSeed();
   loadPresets();
+  loadAliases();
   ui_task.setInitialScreen(&_home);
 }
 
 void ChildMode::openMenu() {
   _menu_context = MENU_TOP;
-  _menu.set("Menu", MENU_ITEMS, MENU_COUNT, this);
+  static const int MENU_ICONS[] = { ICON_ENVELOPE_SM, ICON_SEND_SM, ICON_GEAR_SM, ICON_CHEVRON_LEFT };
+  _menu.set("Menu", MENU_ITEMS, MENU_COUNT, this, MENU_ICONS);
   ui_task.showScreen(&_menu);
 }
 
 void ChildMode::openMessages() {
+  if (_store.count() == 0) { openNotice(ICON_ENVELOPE, "No messages yet", 0, NR_HOME); return; }
   _menu_context = MENU_MESSAGES;
-  if (_store.count() == 0) {
-    _menu.set("Messages", NO_MSG_ITEMS, 1, this);
-  } else {
-    _menu.set("Messages", _store.labelPtrs(), _store.count(), this);
+  // per-row icon: group marker for channel msgs; DMs have none (sender name in label suffices)
+  for (int i = 0; i < _store.count(); i++) {
+    _msg_icons[i] = _store.at(i).is_channel ? ICON_GROUP_SM : -1;
   }
+  _menu.set("Messages", _store.labelPtrs(), _store.count(), this, _msg_icons);
   ui_task.showScreen(&_menu);
 }
 
 void ChildMode::openSend() {
+  const char* const* items = _presets.labelPtrs();   // also rebuilds labelCount()
+  if (_presets.labelCount() == 0) { openNotice(ICON_SEND, "No quick messages", 0, NR_MENU); return; }
   _menu_context = MENU_SEND_PRESET;
-  const char* const* items = _presets.labelPtrs();   // rebuilds labelCount()
-  if (_presets.labelCount() == 0) _menu.set("Send", NO_PRESET_ITEMS, 1, this);
-  else                            _menu.set("Send", items, _presets.labelCount(), this);
+  _menu.set("Send", items, _presets.labelCount(), this);
   ui_task.showScreen(&_menu);
 }
 
@@ -146,12 +195,9 @@ void ChildMode::buildRecipients() {
 }
 
 void ChildMode::openRecipients() {
+  if (_recip_count == 0) { openNotice(ICON_PERSON, "No one to send to", 0, NR_MENU); return; }
   _menu_context = MENU_SEND_RECIPIENT;
-  if (_recip_count == 0) {
-    _menu.set("Send to", NO_RECIP_ITEMS, 1, this);
-  } else {
-    _menu.set("Send to", _recip_label_ptrs, _recip_count, this);
-  }
+  _menu.set("Send to", _recip_label_ptrs, _recip_count, this);
   ui_task.showScreen(&_menu);
 }
 
@@ -167,7 +213,7 @@ void ChildMode::openQuestion(int idx) {
   parseChildQuestion(m.text, _question);
   _question_msg_idx = idx;
   int answered = (m.answer_idx == 0xFF) ? -1 : (int)m.answer_idx;
-  _question_screen.open(&_question, answered);
+  _question_screen.open(&_question, answered, m.origin);
   ui_task.showScreen(&_question_screen);
 }
 
@@ -185,28 +231,24 @@ void ChildMode::openMessage(int idx) {
 void ChildMode::onMenuSelect(int idx) {
   // empty preset/recipient/message lists never reach here; open*() divert to a notice
   if (_menu_context == MENU_SEND_PRESET) {
-    if (_presets.labelCount() == 0) { openMenu(); return; }   // "No presets" -> back to menu
     _send_slot = _presets.slotForRow(idx);
     buildRecipients();
     openRecipients();
     return;
   }
   if (_menu_context == MENU_SEND_RECIPIENT) {
-    if (_recip_count == 0) { ui_task.showScreen(&_home); return; }  // "No recipients"
     const ChildRecipient& r = _recips[idx];
     const char* txt = _presets.text(_send_slot);
     bool ok = r.is_channel ? the_mesh.sendChildGroupText(r.channel_idx, txt)
                            : the_mesh.sendChildText(r.pubkey, txt);
     if (ok) {
-      ui_task.showScreen(&_home);
-      ui_task.showAlert("Sent", 1500);
+      openNotice(ICON_CHECK, "Sent", 1200, NR_HOME);   // check flourish, then home
     } else {
       ui_task.showAlert("Send failed", 1500);   // stays on recipient list -> retryable
     }
     return;
   }
   if (_menu_context == MENU_MESSAGES) {
-    if (_store.count() == 0) { openMenu(); return; }
     openMessage(idx);
     return;
   }
@@ -254,17 +296,41 @@ void ChildMode::onQuestionSelect(int opt) {
   const char* answer = _question.options[opt];
   bool sent = m.is_channel ? the_mesh.sendChildGroupText(m.channel_idx, answer)
                            : the_mesh.sendChildText(m.sender, answer);
-  ui_task.showScreen(&_home);
   if (sent) {
     _store.markAnswered(_question_msg_idx, (uint8_t)opt);
-    ui_task.showAlert("Sent", 1500);
+    openNotice(ICON_CHECK, "Sent", 1200, NR_HOME);
   } else {
+    ui_task.showScreen(&_home);
     ui_task.showAlert("Send failed", 1500);   // stays pending -> retryable
   }
 }
 
 void ChildMode::onQuestionCancel() {
   ui_task.showScreen(&_home);   // unanswered question stays pending (nag preserved)
+}
+
+void ChildMode::raiseBell(const char* origin, bool is_channel, const uint8_t* pubkey,
+                          uint8_t channel_idx) {
+  _bell.is_channel = is_channel;
+  _bell.channel_idx = channel_idx;
+  if (pubkey) memcpy(_bell.pubkey, pubkey, 6);
+  _bell.ring_until = millis() + CHILD_BELL_RING_MS;
+  strncpy(_bell_caller, origin ? origin : "", sizeof(_bell_caller) - 1);
+  _bell_caller[sizeof(_bell_caller) - 1] = 0;
+  _bell_screen.open(_bell_caller);
+  ui_task.notify(UIEventType::bell);          // first ring now; screen re-fires within the window
+  ui_task.showScreenAwake(&_bell_screen);     // wake + show (mirrors the message alert)
+}
+
+void ChildMode::onBellRingTick() {
+  if (millis() < _bell.ring_until) ui_task.notify(UIEventType::bell);
+}
+
+void ChildMode::onBellDismiss() {
+  // deliberate dismiss -> ack the caller. timed-out/ignored bell sends nothing.
+  if (_bell.is_channel) the_mesh.sendChildGroupText(_bell.channel_idx, CHILD_BELL_ACK_TEXT);
+  else                  the_mesh.sendChildText(_bell.pubkey, CHILD_BELL_ACK_TEXT);
+  ui_task.showScreen(&_home);
 }
 
 void ChildMode::onPinEntered(uint32_t pin) {
@@ -298,6 +364,27 @@ bool ChildMode::onIncomingText(const ContactInfo& from, uint8_t txt_type,
     return true;                                            // silent, like !pin
   }
 
+  int tz;
+  if (parseTzCommand(text, &tz)) {                          // !tz <minutes>: clock offset
+    _cfg.tz_offset_min = (int16_t)tz; save();
+    return true;
+  }
+
+  char newname[32];
+  if (parseNameCommand(text, newname, sizeof(newname))) {   // !name <x>: sender renames itself
+    char oldname[32];                                       // current name = its group on-air name
+    strncpy(oldname, from.name, sizeof(oldname) - 1); oldname[sizeof(oldname) - 1] = 0;
+    the_mesh.childSetContactName(from.id.pub_key, newname); // rename DM contact (+ full UI)
+    _aliases.set(oldname, newname);                         // alias embedded name for group msgs
+    saveAliases();
+    return true;
+  }
+
+  if (parseChildBell(text)) {
+    raiseBell(from.name, false, from.id.pub_key, 0xFF);
+    return true;                               // ephemeral: not stored, no unread badge
+  }
+
   if (txt_type == TXT_TYPE_PLAIN || txt_type == TXT_TYPE_SIGNED_PLAIN) {
     ChildQuestion q;
     bool is_q = parseChildQuestion(text, q);
@@ -309,8 +396,17 @@ bool ChildMode::onIncomingText(const ContactInfo& from, uint8_t txt_type,
 
 bool ChildMode::onIncomingChannel(uint8_t channel_idx, const char* channel_name,
                                   uint32_t timestamp, const char* text) {
+  if (parseChildBell(text)) {
+    raiseBell(channel_name, true, nullptr, channel_idx);
+    return true;
+  }
+
+  // rewrite embedded "<sender>: " to its alias so !name reaches groups too
+  char rewritten[CHILD_MSG_BODY];
+  const char* disp_text = aliasRewriteGroupText(text, rewritten, sizeof(rewritten));
+
   ChildQuestion q;
-  bool is_q = parseChildQuestion(text, q);
-  captureMessage(channel_name, text, timestamp, true, nullptr, channel_idx, is_q);
+  bool is_q = parseChildQuestion(disp_text, q);
+  captureMessage(channel_name, disp_text, timestamp, true, nullptr, channel_idx, is_q);
   return true;
 }

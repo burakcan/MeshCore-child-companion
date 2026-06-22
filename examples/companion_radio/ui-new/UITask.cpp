@@ -618,6 +618,11 @@ switch(t){
   case UIEventType::ack:
     buzzer.play("ack:d=32,o=8,b=120:c");
     break;
+#ifdef CHILD_MODE
+  case UIEventType::bell:   // CHILD_MODE seam: ring the call melody
+    buzzer.play(CHILD_BELL_MELODY);
+    break;
+#endif
   case UIEventType::roomMessage:
   case UIEventType::newContactMessage:
   case UIEventType::none:

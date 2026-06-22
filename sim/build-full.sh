@@ -43,6 +43,17 @@ CRYPTOSRC="$CRYPTO/AES128.cpp $CRYPTO/AESCommon.cpp $CRYPTO/Crypto.cpp $CRYPTO/B
   $CRYPTO/BigNumberUtil.cpp $CRYPTO/Curve25519.cpp $CRYPTO/GF128.cpp"
 LPPSRC="$LPP/*.cpp"
 
+# Host-portable UI widget sources: everything in helpers/ui/ except the hardware
+# display drivers / buzzer / vibration. Globbed so new widgets (Scrollbar,
+# UiFooter, UiIcons, ...) are picked up automatically.
+UI_WIDGETS=""
+for f in src/helpers/ui/*.cpp; do
+  case "$f" in
+    *Display.cpp|*OLEDDisplay.cpp|*OLEDDisplayFonts.cpp|*buzzer.cpp|*GenericVibration.cpp) ;;  # hardware: skip
+    *) UI_WIDGETS="$UI_WIDGETS $f" ;;
+  esac
+done
+
 # --- per-profile app sources / include dir / output ---
 case "$PROFILE" in
   companion)
@@ -57,9 +68,7 @@ case "$PROFILE" in
       examples/companion_radio/ui-new/UITask.cpp \
       examples/companion_radio/child_mode/*.cpp \
       src/helpers/child/*.cpp \
-      src/helpers/ui/MenuModel.cpp src/helpers/ui/ListMenuScreen.cpp \
-      src/helpers/ui/PinEntryScreen.cpp src/helpers/ui/StatusHeader.cpp \
-      src/helpers/ui/MomentaryButton.cpp \
+      $UI_WIDGETS \
       sim/host_display.cpp sim/host/node_companion_ui.cpp"
     OUT="sim/meshnode-companion-ui" ;;
   companion-ui-full)
@@ -68,9 +77,7 @@ case "$PROFILE" in
     DEFS="$DEFS -D UI_HAS_JOYSTICK=1 -D UI_HAS_JOYSTICK_UPDOWN=1 -D AUTO_OFF_MILLIS=0"
     APP="examples/companion_radio/MyMesh.cpp examples/companion_radio/DataStore.cpp \
       examples/companion_radio/ui-new/UITask.cpp \
-      src/helpers/ui/MenuModel.cpp src/helpers/ui/ListMenuScreen.cpp \
-      src/helpers/ui/PinEntryScreen.cpp src/helpers/ui/StatusHeader.cpp \
-      src/helpers/ui/MomentaryButton.cpp \
+      $UI_WIDGETS \
       sim/host_display.cpp sim/host/node_companion_ui.cpp"
     OUT="sim/meshnode-companion-ui-full" ;;
   heltec-v3 | heltec-v4)
@@ -80,9 +87,7 @@ case "$PROFILE" in
     DEFS="$DEFS -D PIN_USER_BTN=0 -D AUTO_OFF_MILLIS=0"
     APP="examples/companion_radio/MyMesh.cpp examples/companion_radio/DataStore.cpp \
       examples/companion_radio/ui-new/UITask.cpp \
-      src/helpers/ui/MenuModel.cpp src/helpers/ui/ListMenuScreen.cpp \
-      src/helpers/ui/PinEntryScreen.cpp src/helpers/ui/StatusHeader.cpp \
-      src/helpers/ui/MomentaryButton.cpp \
+      $UI_WIDGETS \
       sim/host_display.cpp sim/host/node_companion_ui.cpp"
     OUT="sim/meshnode-$PROFILE" ;;
   panel)

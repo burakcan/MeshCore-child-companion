@@ -1,4 +1,5 @@
 #pragma once
+#include <stdint.h>
 #include <helpers/ui/UIScreen.h>
 #include <helpers/child/ChildMessageStore.h>
 
@@ -13,9 +14,10 @@ public:
 class ChildAlertScreen : public UIScreen {
   AlertHandler* _owner;
   ChildMessageStore* _store;
+  uint32_t _opened;            // ms alert appeared (arrival blink)
 public:
-  ChildAlertScreen(AlertHandler* owner) : _owner(owner), _store(nullptr) {}
-  void open(ChildMessageStore* store) { _store = store; }
+  ChildAlertScreen(AlertHandler* owner) : _owner(owner), _store(nullptr), _opened(0) {}
+  void open(ChildMessageStore* store);
   int render(DisplayDriver& display) override;
   bool handleInput(char c) override;
 };

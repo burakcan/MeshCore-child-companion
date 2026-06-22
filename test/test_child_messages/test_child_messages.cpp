@@ -75,17 +75,17 @@ TEST(ChildMessageStore, LabelMarksUnreadThenClears) {
   ChildMessageStore s;
   s.add("Mom", "hi", 1, false, PFX, 0xFF, false);
   const char* const* labels = s.labelPtrs();
-  EXPECT_EQ(strncmp(labels[0], "* (D) Mom:", 10), 0);
+  EXPECT_EQ(strncmp(labels[0], "* Mom:", 6), 0);
   s.markRead(0);
   labels = s.labelPtrs();
-  EXPECT_EQ(strncmp(labels[0], "(D) Mom:", 8), 0);
+  EXPECT_EQ(strncmp(labels[0], "Mom:", 4), 0);
 }
 
 TEST(ChildMessageStore, LabelPrefixChannel) {
   ChildMessageStore s;
   s.add("Family", "dinner", 1, true, nullptr, 3, false);
   const char* const* labels = s.labelPtrs();
-  EXPECT_EQ(strncmp(labels[0], "* (#) Family:", 13), 0);
+  EXPECT_EQ(strncmp(labels[0], "* Family:", 9), 0);
 }
 
 TEST(ChildMessageStore, LabelEllipsizedToWidth) {
@@ -109,10 +109,10 @@ TEST(ChildMessageStore, LabelMarksQuestionThenClears) {
   ChildMessageStore s;
   s.add("Mom", "?dinner | a | b", 1, false, PFX, 0xFF, true);
   const char* const* labels = s.labelPtrs();
-  EXPECT_EQ(strncmp(labels[0], "? (D) Mom:", 10), 0);   // needs-answer marker
+  EXPECT_EQ(strncmp(labels[0], "? Mom:", 6), 0);   // needs-answer marker
   s.markAnswered(0, 0);
   labels = s.labelPtrs();
-  EXPECT_EQ(strncmp(labels[0], "(D) Mom:", 8), 0);       // marker gone after answer
+  EXPECT_EQ(strncmp(labels[0], "Mom:", 4), 0);       // marker gone after answer
 }
 
 int main(int argc, char **argv) {

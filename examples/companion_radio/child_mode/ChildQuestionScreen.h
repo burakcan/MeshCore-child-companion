@@ -18,15 +18,17 @@ public:
 class ChildQuestionScreen : public UIScreen {
   QuestionHandler* _owner;
   const ChildQuestion* _q;
-  int _answered_idx;                  // -1 = unanswered (selectable); else chosen option (locked, ✓)
-  MenuModel _model;                   // option selection
+  const char* _from;                  // "<name> asks"
+  int _answered_idx;                  // -1 = unanswered; else chosen option (locked)
+  MenuModel _model;
   WrapLine _qlines[CHILD_Q_MAX_QLINES];
   int _nqlines;
-  int visibleRows() const;            // option rows that fit below the wrapped question
+  bool _need_layout;                  // reset option model on first render (after translate+wrap)
+  int visibleRows() const;            // option rows that fit below the question
 public:
   ChildQuestionScreen(QuestionHandler* owner)
-    : _owner(owner), _q(nullptr), _answered_idx(-1), _nqlines(0) {}
-  void open(const ChildQuestion* q, int answered_idx);
+    : _owner(owner), _q(nullptr), _from(""), _answered_idx(-1), _nqlines(0), _need_layout(false) {}
+  void open(const ChildQuestion* q, int answered_idx, const char* from);
   int render(DisplayDriver& display) override;
   bool handleInput(char c) override;
 };

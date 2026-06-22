@@ -191,6 +191,8 @@ public:
   // CHILD_MODE seam: child read-ack senders (DM reply / group post)
   bool sendChildText(const uint8_t* sender_prefix, const char* text);
   bool sendChildGroupText(uint8_t channel_idx, const char* text);
+  // CHILD_MODE seam: rename a contact (sender self-renames via !name)
+  bool childSetContactName(const uint8_t* pubkey, const char* name);
 #endif
 
 private:

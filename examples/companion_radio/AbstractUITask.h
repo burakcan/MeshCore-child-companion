@@ -20,7 +20,17 @@ enum class UIEventType {
     roomMessage,
     newContactMessage,
     ack
+#ifdef CHILD_MODE
+    , bell      // CHILD_MODE seam: incoming-call ring
+#endif
 };
+
+#ifdef CHILD_MODE
+// CHILD_MODE seam: Nokia Tune as the bell ring, not a beep.
+#ifndef CHILD_BELL_MELODY
+#define CHILD_BELL_MELODY "NokiaTune:d=4,o=5,b=225:8e6,8d6,f#,g#,8c#6,8b,d,e,8b,8a,c#,e,2a"
+#endif
+#endif
 
 class AbstractUITask {
 protected:

@@ -1,4 +1,5 @@
 #include "PinEntryScreen.h"
+#include "UiIcons.h"
 
 void PinEntryScreen::resetDigits() {
   for (int i = 0; i < NUM_DIGITS; i++) _digits[i] = 0;
@@ -11,9 +12,11 @@ void PinEntryScreen::begin(const char* title, PinHandler* h) {
 }
 
 int PinEntryScreen::render(DisplayDriver& display) {
-  display.setTextSize(1);
   display.setColor(DisplayDriver::LIGHT);
-  display.setCursor(2, 4);
+  int iw, ih; const uint8_t* lk = uiIcon(ICON_LOCK, &iw, &ih);
+  if (lk) display.drawXbm(2, 1, lk, iw, ih);
+  display.setTextSize(1);
+  display.setCursor(lk ? iw + 6 : 2, 4);
   display.print(_title);
 
   char buf[2] = {0, 0};

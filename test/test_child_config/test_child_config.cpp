@@ -32,6 +32,27 @@ TEST(ChildConfig, UnpackRejectsUnknownVersion) {
   EXPECT_FALSE(childConfigUnpack(out, buf, CHILD_CONFIG_BLOB_LEN));
 }
 
+TEST(ChildConfig, TimezoneRoundTrip) {
+  ChildConfig in; childConfigInit(in, 1111);
+  in.tz_offset_min = -300;                   // UTC-5
+  uint8_t buf[16];
+  int n = childConfigPack(in, buf);
+  ChildConfig out;
+  EXPECT_TRUE(childConfigUnpack(out, buf, n));
+  EXPECT_EQ(out.tz_offset_min, -300);
+  EXPECT_EQ(out.pin, 1111u);
+}
+
+TEST(ChildConfig, MigratesV1BlobToTzZero) {
+  // an old v1 blob: version 1 + pin, no timezone bytes
+  uint8_t buf[5] = {1, 0xD2, 0x04, 0, 0};    // pin = 1234
+  ChildConfig out;
+  EXPECT_TRUE(childConfigUnpack(out, buf, 5));
+  EXPECT_EQ(out.pin, 1234u);
+  EXPECT_EQ(out.tz_offset_min, 0);
+  EXPECT_EQ(out.version, CHILD_CONFIG_VERSION);   // upgraded in memory
+}
+
 TEST(ChildConfig, UnpackReadsFromZeroPaddedBuffer) {
   ChildConfig in; childConfigInit(in, 4321);
   uint8_t buf[100];

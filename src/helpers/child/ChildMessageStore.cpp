@@ -67,8 +67,8 @@ const char* const* ChildMessageStore::labelPtrs() {
     const char* mark = "";
     if (m.is_question) { if (m.answer_idx == 0xFF) mark = "? "; }
     else if (!m.read)  { mark = "* "; }
-    snprintf(_labels[i], CHILD_MSG_LABEL, "%s(%c) %s: %s",
-             mark, m.is_channel ? '#' : 'D', m.origin, m.text);
+    // group/DM shown by per-row icon; marker is just unread/question
+    snprintf(_labels[i], CHILD_MSG_LABEL, "%s%s: %s", mark, m.origin, m.text);
     _label_ptrs[i] = _labels[i];
   }
   return _label_ptrs;

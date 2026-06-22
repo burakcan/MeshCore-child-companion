@@ -635,6 +635,14 @@ bool MyMesh::sendChildGroupText(uint8_t channel_idx, const char* text) {
   return sendGroupMessage(getRTCClock()->getCurrentTimeUnique(), channel.channel,
                           _prefs.node_name, text, strlen(text));
 }
+
+bool MyMesh::childSetContactName(const uint8_t* pubkey, const char* name) {
+  ContactInfo* r = lookupContactByPubKey(pubkey, 6);
+  if (r == NULL) return false;
+  StrHelper::strzcpy(r->name, name, sizeof(r->name));
+  saveContacts();
+  return true;
+}
 #endif
 
 void MyMesh::onChannelDataRecv(const mesh::GroupChannel &channel, mesh::Packet *pkt, uint16_t data_type,
