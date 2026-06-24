@@ -17,3 +17,12 @@ compile_commands.json
 .venv/
 venv/
 platformio.local.ini
+
+# Python bytecode (e.g. tools/gen_icons.py)
+__pycache__/
+*.pyc
+
+# Throwaway icon comparison/preview renders — regenerate locally, don't commit
+tools/icon_alternates.png
+tools/icon_compare.png
+tools/icons_preview.png
