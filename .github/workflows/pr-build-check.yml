@@ -43,6 +43,8 @@ jobs:
           - wio_wm1110_repeater
           # SX1276 (ESP32)
           - Tbeam_SX1276_repeater
+          # Child mode (Wio Tracker L1 Pro, nRF52 + LR1110) — this fork's headline build
+          - WioTrackerL1_companion_radio_child
 
     steps:
       - name: Clone Repo

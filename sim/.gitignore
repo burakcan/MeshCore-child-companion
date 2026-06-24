@@ -9,3 +9,6 @@ meshnode-*
 child_cfg.bin
 fsroot/
 vendor/
+
+# Scratch screenshot output (SIM_SCRIPT mode); curated copies live in docs/screenshots/
+shots/

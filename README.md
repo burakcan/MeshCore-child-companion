@@ -1,128 +1,143 @@
-## About MeshCore
+# MeshCore - Child Mode
 
-MeshCore is a lightweight, portable C++ library that enables multi-hop packet routing for embedded projects using LoRa and other packet radios. It is designed for developers who want to create resilient, decentralized communication networks that work without the internet.
+Child mode is a build of [MeshCore](https://github.com/meshcore-dev/MeshCore)'s companion radio for kids. I made it because we don't want to give our son a phone yet, but still want to reach him and know roughly where he is when he's out. A feature phone has no GPS; a smartphone is too much. This is the middle ground: one small LoRa device he can operate, doing messaging and location over the radio.
 
-## 🔍 What is MeshCore?
+Everything child-specific is behind a `CHILD_MODE` compile flag, so a normal MeshCore build is byte-for-byte identical and we keep tracking upstream. For the mesh itself, see the [upstream repo](https://github.com/meshcore-dev/MeshCore) and [docs.meshcore.io](https://docs.meshcore.io).
 
-MeshCore now supports a range of LoRa devices, allowing for easy flashing without the need to compile firmware manually. Users can flash a pre-built binary using tools like Adafruit ESPTool and interact with the network through a serial console.
-MeshCore provides the ability to create wireless mesh networks, similar to Meshtastic and Reticulum but with a focus on lightweight multi-hop packet routing for embedded projects. Unlike Meshtastic, which is tailored for casual LoRa communication, or Reticulum, which offers advanced networking, MeshCore balances simplicity with scalability, making it ideal for custom embedded solutions, where devices (nodes) can communicate over long distances by relaying messages through intermediate nodes. This is especially useful in off-grid, emergency, or tactical situations where traditional communication infrastructure is unavailable.
+Tested on the **Seeed Wio Tracker L1 Pro** (nRF52840, 128×64 OLED, joystick + back button). Other nRF52 + screen boards need their own variant but should be easy. I currently don't have another device to test.
 
-## ⚡ Key Features
+## What the kid sees
 
-* Multi-Hop Packet Routing
-  * Devices can forward messages across multiple nodes, extending range beyond a single radio's reach.
-  * Supports up to a configurable number of hops to balance network efficiency and prevent excessive traffic.
-  * Nodes use fixed roles where "Companion" nodes are not repeating messages at all to prevent adverse routing paths from being used.
-* Supports LoRa Radios – Works with Heltec, RAK Wireless, and other LoRa-based hardware.
-* Decentralized & Resilient – No central server or internet required; the network is self-healing.
-* Low Power Consumption – Ideal for battery-powered or solar-powered devices.
-* Simple to Deploy – Pre-built example applications make it easy to get started.
+A big clock and a battery icon. Press in for a short menu: read messages, send a quick reply. The full companion UI is compiled in but locked behind a PIN.
 
-## 🎯 What Can You Use MeshCore For?
+## Screenshots
 
-* Off-Grid Communication: Stay connected even in remote areas.
-* Emergency Response & Disaster Recovery: Set up instant networks where infrastructure is down.
-* Outdoor Activities: Hiking, camping, and adventure racing communication.
-* Tactical & Security Applications: Military, law enforcement, and private security use cases.
-* IoT & Sensor Networks: Collect data from remote sensors and relay it back to a central location.
+<table>
+  <tr>
+    <td align="center"><img src="docs/screenshots/home.png" width="240"><br><b>Home</b><br>clock + battery</td>
+    <td align="center"><img src="docs/screenshots/new-message.png" width="240"><br><b>New message</b><br>wakes the screen &amp; alerts</td>
+    <td align="center"><img src="docs/screenshots/message-reader.png" width="240"><br><b>Reader</b><br>scrollable message</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/messages-list.png" width="240"><br><b>Inbox</b><br>unread &bull;, DM/group icons</td>
+    <td align="center"><img src="docs/screenshots/question.png" width="240"><br><b>Question</b><br>pick an answer</td>
+    <td align="center"><img src="docs/screenshots/bell.png" width="240"><br><b>Call bell</b><br>“press = I’m here”</td>
+  </tr>
+  <tr>
+    <td align="center"><img src="docs/screenshots/menu.png" width="240"><br><b>Menu</b><br>messages · send · settings</td>
+    <td align="center"><img src="docs/screenshots/send-presets.png" width="240"><br><b>Send</b><br>pick a canned message</td>
+    <td></td>
+  </tr>
+</table>
 
-## 🚀 How to Get Started
+## What it does
 
-- Watch the [MeshCore QuickStart Playlist](https://www.youtube.com/watch?v=iaFltojJrAc&list=PLshzThxhw4O4WU_iZo3NmNZOv6KMrUuF9) by The Comms Channel
-- Watch the [MeshCore Technical Presentation](https://www.youtube.com/watch?v=OwmkVkZQTf4) by Liam Cottle.
-- Read through our [Frequently Asked Questions](./docs/faq.md) and [Documentation](https://docs.meshcore.io).
-- Flash the MeshCore firmware on a supported device.
-- Connect with a supported client.
+- **Read messages.** DMs and group messages are stored on-device, scrollable, with unread markers and a wake-up notification. Opening one sends a read-receipt back (as a message).
+- **Questions.** Send `?Dinner | Pizza | Pasta`; the kid picks an answer and it comes back to you. This is the most important feature for me personally.
+- **Canned replies.** The kid picks from a short list you set ("I'm OK", "On my way"), chooses a recipient, sends.
+- **Call bell.** Send a single 🔔 and the device rings and shows "Dad is calling". The kid presses a key, you get "👋 here" back.
+- **Location and battery.** It's a real MeshCore node, so you can request the kid's position and battery from your phone. Enabled per-contact during setup.
+- **No strangers.** Unknown nodes aren't auto-added, there's no public channel seeded, and stray adverts can't buzz the device. Only contacts you add can reach it.
+- **Retries on its own.** Different from a stock companion radio. See [delivery](#delivery) below if you're interested. But the gist is, it tries harder to make sure packages arrive.
 
-For developers:
+Controls are the same everywhere: up/down to move, right or press to choose, left or back to go back.
 
-- Install [PlatformIO](https://docs.platformio.org) in [Visual Studio Code](https://code.visualstudio.com).
-- Clone and open the MeshCore repository in Visual Studio Code.
-- See the example applications you can modify and run:
-  - [Companion Radio](./examples/companion_radio) - For use with an external chat app, over BLE, USB or Wi-Fi.
-  - [KISS Modem](./examples/kiss_modem) - Serial KISS protocol bridge for host applications. ([protocol docs](./docs/kiss_modem_protocol.md))
-  - [Simple Repeater](./examples/simple_repeater) - Extends network coverage by relaying messages.
-  - [Simple Room Server](./examples/simple_room_server) - A simple BBS server for shared Posts.
-  - [Simple Secure Chat](./examples/simple_secure_chat) - Secure terminal based text communication between devices.
-  - [Simple Sensor](./examples/simple_sensor) - Remote sensor node with telemetry and alerting.
+## Install
 
-The Simple Secure Chat example can be interacted with through the Serial Monitor in Visual Studio Code, or with a Serial USB Terminal on Android.
+Grab the latest `WioTrackerL1_companion_radio_child-*.uf2` from [Releases](../../releases), then:
 
-## ⚡️ MeshCore Flasher
+1. Plug the L1 into USB.
+2. Double-tap reset. It mounts as a USB drive.
+3. Drop the `.uf2` onto it. It reboots into child mode.
 
-We have prebuilt firmware ready to flash on supported devices.
+Or [build it yourself](#building-from-source).
 
-- Launch https://meshcore.io/flasher
-- Select a supported device
-- Flash one of the firmware types:
-  - Companion, Repeater or Room Server
-- Once flashing is complete, you can connect with one of the MeshCore clients below.
+## Setting it up (phone needed once)
 
-## 📱 MeshCore Clients
+The device only talks to contacts it knows, and adding them needs a phone — once. Connect the [MeshCore app](https://github.com/meshcore-dev/MeshCore#-meshcore-clients) to the kid's device over Bluetooth (unlock with the PIN, default `1234`), then:
 
-**Companion Firmware**
+1. Add each parent as a contact. This isn't automatic — pair each one so their key is stored on the device.
+2. Allow location/telemetry requests from those contacts, or requesting the kid's position later won't work.
 
-The companion firmware can be connected to via BLE, USB or Wi-Fi depending on the firmware type you flashed.
+Add the kid as a contact on each parent's phone too. After that, everything runs over the radio.
 
-- Web: https://app.meshcore.nz
-- Android: https://play.google.com/store/apps/details?id=com.liamcottle.meshcore.android
-- iOS: https://apps.apple.com/us/app/meshcore/id6742354151?platform=iphone
-- NodeJS: https://github.com/liamcottle/meshcore.js
-- Python: https://github.com/fdlamotte/meshcore-cli
+## Commands (from a parent's phone)
 
-**Repeater and Room Server Firmware**
+Message the device to control it. These are handled silently — the kid never sees them:
 
-The repeater and room server firmware can be set up via USB in the web config tool.
+| Command                    | What it does                                                                               |
+| -------------------------- | ------------------------------------------------------------------------------------------ |
+| `!pin <old> <new>`         | Change the lock PIN (default `1234`), e.g. `!pin 1234 4680`.                               |
+| `!tz <minutes>`            | Clock UTC offset in minutes. Berlin summer `!tz 120`, winter `!tz 60`. No automatic DST.   |
+| `!preset <n> <text>`       | Set canned-message slot _n_ (1–10), e.g. `!preset 1 I'm on my way`. Empty clears the slot. |
+| `!name <newname>`          | Rename yourself on the kid's device (DM contact + group messages).                         |
+| `!retry on` / `!retry off` | Turn on-device send retry on or off.                                                       |
+| `?q \| a \| b`             | Ask a question, e.g. `?Dinner? \| Pizza \| Pasta`.                                         |
+| 🔔                         | Rings the device and shows a "calling" screen.                                             |
 
-- https://config.meshcore.io
+Most of this works in a group channel too, but reliable delivery and location are DM-only. DM the kid when it matters.
 
-They can also be managed via LoRa in the mobile app by using the Remote Management feature.
+## Using it (the kid)
 
-## 🛠 Hardware Compatibility
+- New message: screen lights up, press to read, up/down to scroll.
+- Question: up/down to highlight, press to send.
+- Send: menu → Send → pick a message → pick who. Shows "Sent"; a failed send stays put to retry.
+- Call: press anything to answer, they get a "here".
+- The PIN screen opens the full radio, for parents.
 
-MeshCore is designed for devices listed in the [MeshCore Flasher](https://meshcore.io/flasher)
+## Delivery
 
-## 📜 License
+A stock companion radio leans on its tethered phone app to resend messages that don't arrive. The kid's device has no phone, so it does this itself: it holds each DM until the delivery ACK comes back, otherwise it resends with growing backoff. Overhearing any radio traffic nudges pending messages to resend sooner (rate-limited to every few seconds), and hearing the recipient's own advert triggers an immediate retry that re-floods to relearn the route.
 
-MeshCore is open-source software released under the MIT License. You are free to use, modify, and distribute it for personal and commercial projects.
+Group messages have no ACK, so they aren't retried — prefer DMs. Turn it off with `!retry off`.
 
-## Contributing
+## Building from source
 
-Please submit PR's using 'dev' as the base branch!
-For minor changes just submit your PR and we'll try to review it, but for anything more 'impactful' please open an Issue first and start a discussion. It is better to sound out what it is you want to achieve first, and try to come to a consensus on what the best approach is, especially when it impacts the structure or architecture of this codebase.
+A PlatformIO project. With the repo cloned:
 
-Here are some general principles you should try to adhere to:
-* Keep it simple. Please, don't think like a high-level lang programmer. Think embedded, and keep code concise, without any unnecessary layers.
-* No dynamic memory allocation, except during setup/begin functions.
-* Use the same brace and indenting style that's in the core source modules. (A .clang-format is probably going to be added soon, but please do NOT retroactively re-format existing code. This just creates unnecessary diffs that make finding problems harder)
+```bash
+export FIRMWARE_VERSION=v1.7.6.0      # baked into the build
+pio run -e WioTrackerL1_companion_radio_child -t upload
+```
 
-Help us prioritize! Please react with thumbs-up to issues/PRs you care about most. We look at reaction counts when planning work.
+Debug build, which traces the retry/ack/flood logic over serial (115200):
 
-### Running unit tests
+```bash
+pio run -e WioTrackerL1_companion_radio_child_debug -t upload
+pio device monitor -e WioTrackerL1_companion_radio_child_debug
+```
 
-To run unit tests, run the following command:
+Package the `.uf2`/`.zip` like a release does:
+
+```bash
+export FIRMWARE_VERSION=v1.7.6.0
+sh build.sh build-firmware WioTrackerL1_companion_radio_child   # lands in out/
+```
+
+### Releases and versioning
+
+CI ([release-child-firmware.yml](.github/workflows/release-child-firmware.yml)) publishes a release on tag push:
+
+```bash
+git tag child-v1.7.6.123 && git push origin child-v1.7.6.123
+```
+
+Versions are `<meshcore version>.<our number>` — `1.7.6.123` is our build 123 on MeshCore 1.7.6. Tags are `child-v<version>`.
+
+### Other boards and tests
+
+Other boards and roles build as upstream; nothing here touches them. The plain build for this board is `WioTrackerL1_companion_radio_ble` (identical to upstream with `CHILD_MODE` off). `sh build.sh list` shows every environment.
+
+Hardware-independent logic (config, commands, message store, retry queue, presets, questions, UI widgets) has host tests:
 
 ```bash
 pio test --environment native --verbose
 ```
 
-## Road-Map / To-Do
+## AI Disclosure
 
-There are a number of fairly major features in the pipeline, with no particular time-frames attached yet. In very rough chronological order:
-- [X] Companion radio: UI redesign
-- [X] Repeater + Room Server: add ACL's (like Sensor Node has)
-- [X] Standardise Bridge mode for repeaters
-- [ ] Repeater/Bridge: Standardise the Transport Codes for zoning/filtering
-- [X] Core + Repeater: enhanced zero-hop neighbour discovery
-- [ ] Core: round-trip manual path support
-- [ ] Companion + Apps: support for multiple sub-meshes (and 'off-grid' client repeat mode)
-- [ ] Core + Apps: support for LZW message compression
-- [ ] Core: dynamic CR (Coding Rate) for weak vs strong hops
-- [ ] Core: new framework for hosting multiple virtual nodes on one physical device
-- [ ] V2 protocol spec: discussion and consensus around V2 packet protocol, including path hashes, new encryption specs, etc
+It's mixed. I use AI a lot at work. Side projects are a way for me to keep my programming skills alive. This project contains a mix of manually written and AI generated (but manually reviewed) code. I used it more heavily in brainstorming ideas and discovering the original codebase. Don't use this if you're a purist.
 
-## 📞 Get Support
+## Credits
 
-- Report bugs and request features on the [GitHub Issues](https://github.com/ripplebiz/MeshCore/issues) page.
-- Find additional guides and components on [my site](https://buymeacoffee.com/ripplebiz).
-- Join [MeshCore Discord](https://meshcore.gg) to chat with the developers and get help from the community.
+Built on [MeshCore](https://github.com/meshcore-dev/MeshCore) by Scott Powell (ripplebiz) and contributors — child mode is a thin layer on top, no extra dependencies, same MIT license. For the mesh itself: [MeshCore Discord](https://meshcore.gg) and [docs.meshcore.io](https://docs.meshcore.io).

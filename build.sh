@@ -95,7 +95,9 @@ get_platform_for_env() {
   local env_name=$1
   echo "$PIO_CONFIG_JSON" | python3 -c "
 import sys, json, re
-data = json.load(sys.stdin)
+# strict=False: pio's --json-output embeds literal newlines (multi-line build_src_filter
+# etc.) inside strings, which strict JSON rejects -> would silently skip uf2/bin packaging.
+data = json.load(sys.stdin, strict=False)
 for section, options in data:
     if section == 'env:$env_name':
         for key, value in options:

@@ -29,6 +29,22 @@ Both require `clang++` (C++17). The full harness also needs the PlatformIO libs
 built any firmware; otherwise run `pio run -e WioTrackerL1_companion_radio_usb`
 once to fetch them.
 
+**Screenshots (`SIM_SCRIPT`).** The `companion-ui` harness can drive itself and
+dump each screen to a styled BMP, for the README/docs. It injects mock messages
+through the *real* child capture path and presses the *real* buttons, then writes
+`$SIM_SHOT_DIR/shot-NN.bmp` (default `sim/shots/`, gitignored):
+
+```sh
+sh sim/build-full.sh companion-ui
+mkdir -p sim/shots
+# script chars: . capture  , settle  c/d/u select·down·up  L/R/b left·right·back
+#               M/C dm·channel msg   Q question   B bell   X inbox   m menu
+SIM_SCRIPT='.,M,.,c,.' SIM_SHOT_DIR=sim/shots ./sim/meshnode-companion-ui
+sips -s format png sim/shots/shot-00.bmp --out home.png   # BMP -> PNG (macOS built-in)
+```
+
+Inert unless `SIM_SCRIPT` is set, so normal interactive runs are unaffected.
+
 ---
 
 # Full firmware-on-host harness (`build-full.sh`)

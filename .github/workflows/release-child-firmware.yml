@@ -1,0 +1,45 @@
+name: Release Child Firmware
+
+permissions:
+  contents: write
+
+# Tag a commit `child-v<meshcore>.<our>` (e.g. child-v1.7.6.123) to build the
+# Wio Tracker L1 Pro child firmware and publish a GitHub Release with the .uf2.
+# Or run manually from the Actions tab (uploads artifacts, no release).
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'child-v*'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Repo
+        uses: actions/checkout@v6
+
+      - name: Setup Build Environment
+        uses: ./.github/actions/setup-build-environment
+
+      - name: Build Child Firmware
+        env:
+          # GIT_TAG_VERSION = the part after the last '-' (tag child-v1.7.6.123 -> v1.7.6.123).
+          # On workflow_dispatch (no tag) it's empty, so fall back to a 0.0.0 dev stamp.
+          FIRMWARE_VERSION: ${{ env.GIT_TAG_VERSION || 'v0.0.0-dev' }}
+        run: /usr/bin/env bash build.sh build-firmware WioTrackerL1_companion_radio_child
+
+      - name: Upload Workflow Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: child-firmware
+          path: out
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v3
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: Child Firmware ${{ env.GIT_TAG_VERSION }}
+          generate_release_notes: true
+          draft: false
+          files: out/*
