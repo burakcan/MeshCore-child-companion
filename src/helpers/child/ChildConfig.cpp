@@ -4,6 +4,7 @@ void childConfigInit(ChildConfig& cfg, uint32_t default_pin) {
   cfg.version = CHILD_CONFIG_VERSION;
   cfg.pin = default_pin;
   cfg.tz_offset_min = 0;
+  cfg.retry_enabled = true;
 }
 
 int childConfigPack(const ChildConfig& cfg, uint8_t* buf) {
@@ -15,20 +16,26 @@ int childConfigPack(const ChildConfig& cfg, uint8_t* buf) {
   uint16_t tz = (uint16_t)cfg.tz_offset_min;   // two's complement, LE
   buf[5] = (uint8_t)(tz & 0xFF);
   buf[6] = (uint8_t)((tz >> 8) & 0xFF);
+  buf[7] = cfg.retry_enabled ? 1 : 0;
   return CHILD_CONFIG_BLOB_LEN;
 }
 
 bool childConfigUnpack(ChildConfig& cfg, const uint8_t* buf, int len) {
   if (len < 5) return false;                 // need v1 minimum (version + pin)
   uint8_t ver = buf[0];
-  if (ver != 1 && ver != 2) return false;
-  cfg.version = CHILD_CONFIG_VERSION;        // upgrade in place; next save() rewrites as v2
+  if (ver < 1 || ver > 3) return false;
+  cfg.version = CHILD_CONFIG_VERSION;        // upgrade in place; next save() rewrites as v3
   cfg.pin = (uint32_t)buf[1] | ((uint32_t)buf[2] << 8)
           | ((uint32_t)buf[3] << 16) | ((uint32_t)buf[4] << 24);
   if (ver >= 2 && len >= 7) {
     cfg.tz_offset_min = (int16_t)((uint16_t)buf[5] | ((uint16_t)buf[6] << 8));
   } else {
     cfg.tz_offset_min = 0;                   // v1: no tz
+  }
+  if (ver >= 3 && len >= 8) {
+    cfg.retry_enabled = (buf[7] != 0);
+  } else {
+    cfg.retry_enabled = true;                // v1/v2 migrate: default on
   }
   return true;
 }

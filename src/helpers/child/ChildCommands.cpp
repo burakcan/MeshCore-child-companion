@@ -61,6 +61,17 @@ bool parseNameCommand(const char* text, char* out, int out_size) {
   return n > 0;
 }
 
+bool parseRetryCommand(const char* text, bool* out_enabled) {
+  const char* s = skipGroupPrefix(text);
+  while (*s == ' ') s++;
+  if (strncmp(s, "!retry ", 7) != 0) return false;
+  s += 7;
+  while (*s == ' ') s++;
+  if (strncmp(s, "on", 2) == 0 && (s[2] == 0 || s[2] == ' ')) { *out_enabled = true; return true; }
+  if (strncmp(s, "off", 3) == 0 && (s[3] == 0 || s[3] == ' ')) { *out_enabled = false; return true; }
+  return false;
+}
+
 bool childSenderApproved(uint8_t contact_type) {
   return contact_type != 0;   // 0 == ADV_TYPE_NONE
 }

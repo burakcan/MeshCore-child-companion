@@ -33,6 +33,10 @@
 #include <helpers/SimpleMeshTables.h>
 #include <helpers/StaticPoolPacketManager.h>
 #include <target.h>
+#ifdef CHILD_MODE
+#include <helpers/child/ChildOutbox.h>
+#include <helpers/child/ChildDebug.h>
+#endif
 
 /* ---------------------------------- CONFIGURATION ------------------------------------- */
 
@@ -193,6 +197,10 @@ public:
   bool sendChildGroupText(uint8_t channel_idx, const char* text);
   // CHILD_MODE seam: rename a contact (sender self-renames via !name)
   bool childSetContactName(const uint8_t* pubkey, const char* name);
+  // CHILD_MODE seam: child-sent DMs still awaiting delivery ACK (drives home icon)
+  int childPendingCount() const { return child_outbox.pendingCount(); }
+  // CHILD_MODE seam: on-device DM retry toggle (OTA !retry on|off; default on)
+  void childSetRetryEnabled(bool enabled) { child_retry_enabled = enabled; }
 #endif
 
 private:
@@ -263,6 +271,14 @@ private:
   #define EXPECTED_ACK_TABLE_SIZE 8
   AckTableEntry expected_ack_table[EXPECTED_ACK_TABLE_SIZE]; // circular table
   int next_ack_idx;
+
+#ifdef CHILD_MODE
+  // CHILD_MODE seam: on-device DM retry state + heard-a-packet flag for the nudge
+  ChildOutbox child_outbox;
+  bool child_rx_activity;
+  bool child_retry_enabled;
+  void childResend(int slot);   // resend one outbox entry
+#endif
 
   #define ADVERT_PATH_TABLE_SIZE   16
   AdvertPath advert_paths[ADVERT_PATH_TABLE_SIZE]; // circular table

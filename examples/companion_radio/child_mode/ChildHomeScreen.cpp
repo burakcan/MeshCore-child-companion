@@ -13,8 +13,10 @@ int ChildHomeScreen::render(DisplayDriver& display) {
   const char* name = prefs ? prefs->node_name : "Mesh";
 
   int pct = batteryPercent(board.getBattMilliVolts());
-  // header carries the small name + battery; the time now lives big in the center
-  StatusHeader::draw(display, name, "", pct, true);
+  // header = small name + battery; big clock in the center.
+  // CHILD_MODE seam: send icon in header while a child-sent DM awaits its ACK
+  int lead = the_mesh.childPendingCount() > 0 ? ICON_SEND_SM : -1;
+  StatusHeader::draw(display, name, "", pct, true, lead);
 
   // big clock; "--:--" until the parent sets the time (don't show a wrong clock)
   uint32_t now = rtc_clock.getCurrentTime();

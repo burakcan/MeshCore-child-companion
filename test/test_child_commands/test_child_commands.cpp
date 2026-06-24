@@ -85,6 +85,28 @@ TEST(NameCommand, RejectsEmptyOrNonName) {
   EXPECT_FALSE(parseNameCommand("hello", nm, sizeof(nm)));
 }
 
+TEST(ChildCommands, ParseRetryOnOff) {
+  bool en = false;
+  EXPECT_TRUE(parseRetryCommand("!retry on", &en));
+  EXPECT_TRUE(en);
+  EXPECT_TRUE(parseRetryCommand("!retry off", &en));
+  EXPECT_FALSE(en);
+}
+
+TEST(ChildCommands, ParseRetryToleratesGroupPrefix) {
+  bool en = true;
+  EXPECT_TRUE(parseRetryCommand("Mum: !retry off", &en));
+  EXPECT_FALSE(en);
+}
+
+TEST(ChildCommands, ParseRetryRejectsJunk) {
+  bool en = true;
+  EXPECT_FALSE(parseRetryCommand("!retry maybe", &en));   // unknown arg
+  EXPECT_FALSE(parseRetryCommand("!retry onx", &en));     // trailing junk on "on"
+  EXPECT_FALSE(parseRetryCommand("!retr on", &en));       // wrong command
+  EXPECT_FALSE(parseRetryCommand("hello", &en));          // not a command
+}
+
 int main(int argc, char **argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

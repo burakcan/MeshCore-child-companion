@@ -129,6 +129,7 @@ const char* ChildMode::aliasRewriteGroupText(const char* text, char* buf, int bu
 
 void ChildMode::begin() {
   loadOrSeed();
+  the_mesh.childSetRetryEnabled(_cfg.retry_enabled);   // apply persisted !retry
   loadPresets();
   loadAliases();
   ui_task.setInitialScreen(&_home);
@@ -367,6 +368,14 @@ bool ChildMode::onIncomingText(const ContactInfo& from, uint8_t txt_type,
   int tz;
   if (parseTzCommand(text, &tz)) {                          // !tz <minutes>: clock offset
     _cfg.tz_offset_min = (int16_t)tz; save();
+    return true;
+  }
+
+  bool retry_on;
+  if (parseRetryCommand(text, &retry_on)) {                 // !retry on|off
+    _cfg.retry_enabled = retry_on; save();
+    the_mesh.childSetRetryEnabled(retry_on);
+    CHILD_DEBUG_PRINTLN("!retry %s", retry_on ? "on" : "off");
     return true;
   }
 

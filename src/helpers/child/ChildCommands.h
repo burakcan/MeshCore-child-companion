@@ -19,6 +19,9 @@ bool parseTzCommand(const char* text, int* out_min);
 // "!name <newname>" -> trimmed name in out; false if empty
 bool parseNameCommand(const char* text, char* out, int out_size);
 
-// Approved sender == any real contact. Anon/transient contacts use ADV_TYPE_NONE (0).
-// Takes the raw ContactInfo.type so this stays host-portable (no firmware headers).
+// "!retry on" / "!retry off" -> *out_enabled
+bool parseRetryCommand(const char* text, bool* out_enabled);
+
+// approved == any real contact. anon/transient use ADV_TYPE_NONE (0). raw ContactInfo.type
+// so this stays host-portable.
 bool childSenderApproved(uint8_t contact_type);

@@ -64,6 +64,34 @@ TEST(ChildConfig, UnpackReadsFromZeroPaddedBuffer) {
   EXPECT_EQ(out.version, CHILD_CONFIG_VERSION);
 }
 
+TEST(ChildConfig, RetryEnabledDefaultsTrue) {
+  ChildConfig cfg; childConfigInit(cfg, 1);
+  EXPECT_TRUE(cfg.retry_enabled);
+}
+
+TEST(ChildConfig, RetryEnabledRoundTrip) {
+  ChildConfig in; childConfigInit(in, 1);
+  in.retry_enabled = false;
+  uint8_t buf[16];
+  int n = childConfigPack(in, buf);
+  EXPECT_EQ(n, CHILD_CONFIG_BLOB_LEN);          // v3 = 8 bytes
+  ChildConfig out;
+  EXPECT_TRUE(childConfigUnpack(out, buf, n));
+  EXPECT_FALSE(out.retry_enabled);
+  EXPECT_EQ(out.version, CHILD_CONFIG_VERSION);
+}
+
+TEST(ChildConfig, MigratesV2BlobToRetryEnabled) {
+  // a v2 blob: version 2 + pin + tz, no retry byte
+  uint8_t buf[7] = {2, 0xD2, 0x04, 0, 0, 0x3C, 0x00};  // pin=1234, tz=+60
+  ChildConfig out;
+  EXPECT_TRUE(childConfigUnpack(out, buf, 7));
+  EXPECT_EQ(out.pin, 1234u);
+  EXPECT_EQ(out.tz_offset_min, 60);
+  EXPECT_TRUE(out.retry_enabled);              // default on for migrated blobs
+  EXPECT_EQ(out.version, CHILD_CONFIG_VERSION);
+}
+
 int main(int argc, char **argv) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

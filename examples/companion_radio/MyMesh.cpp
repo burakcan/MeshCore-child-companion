@@ -284,6 +284,9 @@ uint8_t MyMesh::getExtraAckTransmitCount() const {
 }
 
 void MyMesh::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
+#ifdef CHILD_MODE
+  child_rx_activity = true;   // CHILD_MODE seam: heard a packet -> nudge pending retries in loop()
+#endif
   if (_serial->isConnected() && len + 3 <= MAX_FRAME_SIZE) {
     int i = 0;
     out_frame[i++] = PUSH_CODE_LOG_RX_DATA;
@@ -355,6 +358,14 @@ void MyMesh::onContactsFull() {
 }
 
 void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t* path) {
+#ifdef CHILD_MODE
+  // CHILD_MODE seam: heard the recipient of a pending send -> they're online. make it due now
+  // and reset path so the retry floods + re-learns a route.
+  if (child_outbox.onRecipientHeard(contact.id.pub_key, _ms->getMillis())) {
+    resetPathTo(contact);
+    CHILD_DEBUG_PRINTLN("heard recipient '%s' -> retry now + reset path", contact.name);
+  }
+#endif
   if (_serial->isConnected()) {
     if (is_new) {
       writeContactRespFrame(PUSH_CODE_NEW_ADVERT, contact);
@@ -419,6 +430,11 @@ void MyMesh::onContactPathUpdated(const ContactInfo &contact) {
 }
 
 ContactInfo*  MyMesh::processAck(const uint8_t *data) {
+#ifdef CHILD_MODE
+  // CHILD_MODE seam: clear pending retry on delivery confirmation
+  if (child_outbox.onAck(data))
+    CHILD_DEBUG_PRINTLN("ACK confirmed -> freed slot (pending=%d)", child_outbox.pendingCount());
+#endif
   // see if matches any in a table
   for (int i = 0; i < EXPECTED_ACK_TABLE_SIZE; i++) {
     if (memcmp(data, &expected_ack_table[i].ack, 4) == 0) { // got an ACK from recipient
@@ -616,14 +632,24 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
 bool MyMesh::sendChildText(const uint8_t* sender_prefix, const char* text) {
   ContactInfo* r = lookupContactByPubKey(sender_prefix, 6);
   if (r == NULL) return false;
+  uint32_t ts = getRTCClock()->getCurrentTimeUnique();   // CHILD_MODE seam: capture for retry reuse
   uint32_t expected_ack = 0, est_timeout = 0;
-  int result = sendMessage(*r, getRTCClock()->getCurrentTimeUnique(), 0, text, expected_ack, est_timeout);
+  int result = sendMessage(*r, ts, 0, text, expected_ack, est_timeout);
   if (result == MSG_SEND_FAILED) return false;
   if (expected_ack) {
     expected_ack_table[next_ack_idx].msg_sent = _ms->getMillis();
     expected_ack_table[next_ack_idx].ack = expected_ack;
     expected_ack_table[next_ack_idx].contact = r;
     next_ack_idx = (next_ack_idx + 1) % EXPECTED_ACK_TABLE_SIZE;
+    // CHILD_MODE seam: track for on-device retry (skipped when !retry off)
+    if (child_retry_enabled) {
+      child_outbox.enqueue(sender_prefix, text, ts, 0, expected_ack, est_timeout, _ms->getMillis());
+      CHILD_DEBUG_PRINTLN("send DM ack=%08lx est=%lums attempt=0 (pending=%d)",
+                          (unsigned long)expected_ack, (unsigned long)est_timeout,
+                          child_outbox.pendingCount());
+    } else {
+      CHILD_DEBUG_PRINTLN("send DM ack=%08lx (retry off, not tracked)", (unsigned long)expected_ack);
+    }
   }
   return true;
 }
@@ -642,6 +668,48 @@ bool MyMesh::childSetContactName(const uint8_t* pubkey, const char* name) {
   StrHelper::strzcpy(r->name, name, sizeof(r->name));
   saveContacts();
   return true;
+}
+
+// CHILD_MODE seam: resend one outbox entry, next attempt number. re-derives + re-registers the
+// expected ACK so processAck still matches. floods after repeated direct misses to recover a
+// stale path. timestamp held constant across retries (receiver dedup).
+void MyMesh::childResend(int slot) {
+  const ChildOutboxEntry& e = child_outbox.at(slot);
+  ContactInfo* r = lookupContactByPubKey(e.dest_prefix, 6);
+  if (r == NULL) {                                       // contact gone
+    CHILD_DEBUG_PRINTLN("resend slot=%d dropped (contact gone)", slot);
+    child_outbox.drop(slot);
+    return;
+  }
+
+  bool did_flood = false;
+  if (ChildOutbox::shouldFlood(e.direct_misses) && r->out_path_len != OUT_PATH_UNKNOWN) {
+    resetPathTo(*r);          // stale path -> flood + re-learn
+    did_flood = true;
+  }
+
+  uint8_t attempt = e.attempt < 255 ? (uint8_t)(e.attempt + 1) : 255;
+  char text[CHILD_OUTBOX_TEXT_MAX];
+  StrHelper::strzcpy(text, e.text, sizeof(text));
+  uint32_t ts = e.timestamp;
+
+  uint32_t expected_ack = 0, est_timeout = 0;
+  int result = sendMessage(*r, ts, attempt, text, expected_ack, est_timeout);
+  if (result == MSG_SEND_FAILED) {           // pool full; retry later
+    CHILD_DEBUG_PRINTLN("resend slot=%d attempt=%d FAILED (pool full) -> reschedule", slot, attempt);
+    child_outbox.reschedule(slot, _ms->getMillis());
+    return;
+  }
+  if (expected_ack) {
+    expected_ack_table[next_ack_idx].msg_sent = _ms->getMillis();
+    expected_ack_table[next_ack_idx].ack = expected_ack;
+    expected_ack_table[next_ack_idx].contact = r;
+    next_ack_idx = (next_ack_idx + 1) % EXPECTED_ACK_TABLE_SIZE;
+  }
+  child_outbox.onResent(slot, attempt, expected_ack, _ms->getMillis(), did_flood);
+  CHILD_DEBUG_PRINTLN("resend slot=%d -> '%s' attempt=%d ack=%08lx flood=%d %s", slot, r->name,
+                      attempt, (unsigned long)expected_ack, did_flood ? 1 : 0,
+                      result == MSG_SEND_SENT_FLOOD ? "(flood)" : "(direct)");
 }
 #endif
 
@@ -916,6 +984,10 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
       _serial(NULL), telemetry(MAX_PACKET_PAYLOAD - 4), _store(&store), _ui(ui) {
   _iter_started = false;
   _cli_rescue = false;
+#ifdef CHILD_MODE
+  child_rx_activity = false;
+  child_retry_enabled = true;
+#endif
   offline_queue_len = 0;
   app_target_ver = 0;
   clearPendingReqs();
@@ -2291,6 +2363,24 @@ void MyMesh::loop() {
 
 #ifdef DISPLAY_CLASS
   if (_ui) _ui->setHasConnection(_serial->isConnected());
+#endif
+#ifdef CHILD_MODE
+  // CHILD_MODE seam: on-device DM retry (timed + nudge-on-rx). after recv processing so a
+  // just-arrived ACK clears the slot first.
+  {
+    uint32_t now = _ms->getMillis();
+    int slots[CHILD_OUTBOX_SLOTS];
+    int n = child_outbox.collectDue(now, slots);
+    if (n) CHILD_DEBUG_PRINTLN("timed retry: %d due", n);
+    for (int k = 0; k < n; k++) childResend(slots[k]);
+    if (child_rx_activity) {
+      child_rx_activity = false;
+      now = _ms->getMillis();
+      int m = child_outbox.collectNudge(now, slots);
+      if (m) CHILD_DEBUG_PRINTLN("nudge (heard pkt): %d eligible", m);
+      for (int k = 0; k < m; k++) childResend(slots[k]);
+    }
+  }
 #endif
 }
 
