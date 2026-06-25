@@ -45,6 +45,8 @@ jobs:
           - Tbeam_SX1276_repeater
           # Child mode (Wio Tracker L1 Pro, nRF52 + LR1110) — this fork's headline build
           - WioTrackerL1_companion_radio_child
+          # Child mode (Meshtiny, nRF52 + SX1262, 3-way encoder input)
+          - Meshtiny_companion_radio_child
 
     steps:
       - name: Clone Repo

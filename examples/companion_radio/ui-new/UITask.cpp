@@ -828,6 +828,16 @@ void UITask::loop() {
 #endif
 
   if (c != 0 && curr) {
+#ifdef CHILD_REMAP_LR_TO_UD
+    // CHILD_REMAP_LR_TO_UD seam: two-way-nav devices (rotary encoder, two
+    // buttons) have no up/down. For child screens, remap LEFT/RIGHT to UP/DOWN
+    // so the two nav inputs drive move/scroll. The full PIN-gated UI keeps raw
+    // LEFT/RIGHT for paging.
+    if (curr->isChildScreen()) {
+      if (c == KEY_LEFT)       c = KEY_UP;
+      else if (c == KEY_RIGHT) c = KEY_DOWN;
+    }
+#endif
     curr->handleInput(c);
     _auto_off = millis() + AUTO_OFF_MILLIS;   // extend auto-off timer
     _next_refresh = 100;  // trigger refresh

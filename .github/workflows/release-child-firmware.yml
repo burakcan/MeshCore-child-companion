@@ -4,8 +4,8 @@ permissions:
   contents: write
 
 # Tag a commit `child-v<meshcore>.<our>` (e.g. child-v1.7.6.123) to build the
-# Wio Tracker L1 Pro child firmware and publish a GitHub Release with the .uf2.
-# Or run manually from the Actions tab (uploads artifacts, no release).
+# child firmwares (Wio Tracker L1 Pro + Meshtiny) and publish a GitHub Release
+# with the .uf2s. Or run manually from the Actions tab (uploads artifacts, no release).
 on:
   workflow_dispatch:
   push:
@@ -27,7 +27,7 @@ jobs:
           # GIT_TAG_VERSION = the part after the last '-' (tag child-v1.7.6.123 -> v1.7.6.123).
           # On workflow_dispatch (no tag) it's empty, so fall back to a 0.0.0 dev stamp.
           FIRMWARE_VERSION: ${{ env.GIT_TAG_VERSION || 'v0.0.0-dev' }}
-        run: /usr/bin/env bash build.sh build-firmware WioTrackerL1_companion_radio_child
+        run: /usr/bin/env bash build.sh build-firmware WioTrackerL1_companion_radio_child Meshtiny_companion_radio_child
 
       - name: Upload Workflow Artifacts
         uses: actions/upload-artifact@v7

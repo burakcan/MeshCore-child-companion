@@ -23,4 +23,7 @@ public:
   int render(DisplayDriver& display) override;
   void poll() override;
   bool handleInput(char c) override;
+#ifdef CHILD_REMAP_LR_TO_UD
+  bool isChildScreen() const override { return true; }
+#endif
 };
