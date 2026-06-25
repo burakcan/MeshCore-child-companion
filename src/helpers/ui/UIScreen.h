@@ -20,6 +20,12 @@ protected:
 public:
   virtual int render(DisplayDriver& display) =0;   // return value is number of millis until next render
   virtual bool handleInput(char c) { return false; }
+#ifdef CHILD_REMAP_LR_TO_UD
+  // CHILD_REMAP_LR_TO_UD seam: lets the input layer scope the LEFT/RIGHT->UP/DOWN
+  // remap to child screens only (the full PIN-gated UI keeps raw left/right).
+  // Exists only in builds that set the flag (devices with two-way nav and no up/down).
+  virtual bool isChildScreen() const { return false; }
+#endif
   virtual void poll() { }
 };
 
