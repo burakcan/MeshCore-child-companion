@@ -1,4 +1,5 @@
 # MeshCore - Child Mode
+<a href='https://ko-fi.com/W3V222VPDT' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi6.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
 
 Child mode is a build of [MeshCore](https://github.com/meshcore-dev/MeshCore)'s companion radio for kids. I made it because we don't want to give our son a phone yet, but still want to reach him and know roughly where he is when he's out. A feature phone has no GPS; a smartphone is too much. This is the middle ground: one small LoRa device he can operate, doing messaging and location over the radio.
 
